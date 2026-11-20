@@ -2,9 +2,9 @@
 
 <h1>Nano-AI-CAGE</h1>
 
-**把 Claude 大小姐关起来，为了更好地保护我们的相遇**
+**一个隔离、可控的 AI 桌面工作环境**
 
-<img src="assets/claude-cage-character.png" alt="Nano-AI-CAGE" width="320" />
+<img src="assets/readme-workspace.jpg" alt="Nano-AI-Cage 隔离式 AI 工作环境插画" width="900" />
 
 [![Release](https://img.shields.io/github/v/release/askxiaozhang/Nano-AI-Cage?include_prereleases)](https://github.com/askxiaozhang/Nano-AI-Cage/releases) [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -168,13 +168,7 @@ macOS 和已签名 Windows 版本支持通过所选代理更新；Windows 未签
 
 代码与文档贡献采用“`contribution` Issue 审核 → 邀请成为协作者 → 提交 PR → 审查合入”的流程。请先提交[方案贡献 Issue](https://github.com/askxiaozhang/Nano-AI-Cage/issues/new?template=05-contribution.yml)；维护者审核通过并添加 `accepted` 标签后，自动化会发送协作者邀请。接受邀请后再创建 PR，详细步骤与权限说明见[贡献指南](.github/CONTRIBUTING.md)。
 
-本项目仍在快速迭代中，欢迎加入交流群提意见，欢迎社区大佬一起维护
-
-| QQ 群 · 273237690 | 微信 |
-| :---: | :---: |
-| <a href="assets/community-qq.png"><img src="assets/community-qq.png" alt="QQ 群 · 273237690" width="240" /></a> | <a href="www/src/assets/community-wechat.png"><img src="www/src/assets/community-wechat.png" alt="微信" width="240" /></a> |
-
-[Telegram](https://t.me/claude_cage)
+本项目仍在快速迭代中，欢迎通过 [GitHub Issues](https://github.com/askxiaozhang/Nano-AI-Cage/issues) 提出建议和反馈。
 
 ## 来源与许可
 

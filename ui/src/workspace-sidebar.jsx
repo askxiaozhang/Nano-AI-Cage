@@ -1,4 +1,5 @@
 import { DesktopList } from "./account-desktops";
+import { AIDesktopSidebarList } from "./ai-desktops";
 import { HostPluginsNav, HostPluginsSidebar, PluginPagesNav } from "./host-plugins";
 import { shortcut } from "./platform.mjs";
 import React, { useEffect, useRef, useState } from "react";
@@ -79,6 +80,12 @@ export function WorkspaceSidebar({
   onClaudeDesktop,
   accountDesktops,
   desktopOpen,
+  aiDesktops,
+  aiDesktopHubOpen,
+  activeAIDesktop,
+  onOpenAIDesktopHub,
+  onSelectAIDesktop,
+  onStopAIDesktop,
   onEditor,
   onSettings,
   onAccountConfirm,
@@ -188,6 +195,17 @@ export function WorkspaceSidebar({
         {plugins && <HostPluginsNav open={plugins.open} onOpen={plugins.onOpen} />}
         {ssh && <button className="sidebar-link ssh-navigation" onClick={ssh.open} aria-label={tr("SSH 主机")}><Server size={17} />SSH</button>}
         {accountDesktops ? <DesktopList model={accountDesktops} disabled={!running || busy} selected={desktopOpen} onDefault={onClaudeDesktop}/> : <button className={`sidebar-link ${desktopOpen?"selected":""}`} onClick={onClaudeDesktop} disabled={!running||busy}><Monitor size={17}/>Claude Desktop</button>}
+        {aiDesktops && (
+          <AIDesktopSidebarList
+            model={aiDesktops}
+            disabled={!running || busy}
+            hubOpen={aiDesktopHubOpen}
+            activeAppId={activeAIDesktop}
+            onOpenHub={onOpenAIDesktopHub}
+            onSelectApp={onSelectAIDesktop}
+            onStopApp={onStopAIDesktop}
+          />
+        )}
         <button className={`sidebar-link ${claudeAccountsOpen ? "selected" : ""}`} onClick={onClaudeAccounts}
           aria-current={claudeAccountsOpen ? "page" : undefined}>
           <UsersRound size={17} />{tr("Claude 账号管理")}

@@ -35,6 +35,7 @@ import { InitializationGate } from "./initialization";
 import { ProjectRecovery } from "./project-recovery";
 import { DesktopPanes, useAccountDesktops } from "./account-desktops";
 import { ClaudeDesktop } from "./claude-desktop";
+import { AIDesktopHub, AIDesktopView, useAIDesktops } from "./ai-desktops";
 import { ClaudeAccountsPanel, useClaudeAccounts } from "./claude-accounts";
 import { AccountProvider, AccountGate, useAccount } from "./account";
 import { BrowserHeader, BrowserTabRail, TerminalHeader, ExpandSidebar, ExpandPane } from "./pane-headers";
@@ -82,6 +83,7 @@ function App() {
   const [pluginView, setPluginView] = useState("");
   const [tailnetLogin, setTailnetLogin] = useState(null);
   const [desktopOpen, setDesktopOpen] = useState(false);
+  const [activeAIDesktop, setActiveAIDesktop] = useState("");
   const [terminalChoice, setTerminalChoice] = useState(null);
   const [openingSession, setOpeningSession] = useState("");
   const [sessionOpenError, setSessionOpenError] = useState(null);
@@ -158,21 +160,23 @@ function App() {
   activeRef.current = active;
   readyRef.current = Boolean(status?.ready);
   const storageRecovery = status?.storage_recovery?.required;
+  const anyDesktopOpen = desktopOpen || Boolean(activeAIDesktop);
   const current = tabs.find((t) => t.id === active),
-    terminal = !desktopOpen && current?.kind === "terminal",
+    terminal = !anyDesktopOpen && current?.kind === "terminal",
     busy = Boolean(status?.job?.running),
-    showHome = storageRecovery || !desktopOpen && (home || !status?.vm_running || !current);
+    showHome = storageRecovery || !anyDesktopOpen && (home || !status?.vm_running || !current);
   const setupProgress = status?.job?.setup_progress && (busy || status.job.error);
   const cliSessions = useCLISessions(Boolean(status && !busy && !storageRecovery), windowVisible);
   useEffect(() => {
     if (storageRecovery) {
       setDesktopOpen(false);
+      setActiveAIDesktop("");
       setHome(true);
       setStartRequest(null);
     }
   }, [storageRecovery]);
   const other = tabs.find(tab => tab.id === layout.other);
-  const split = Boolean(other && current && !showHome && !desktopOpen);
+  const split = Boolean(other && current && !showHome && !anyDesktopOpen);
   const panes = !split ? [current].filter(Boolean)
     : layout.side === "left" ? [current, other] : [other, current];
   const webPanes = panes.filter(tab => tab.kind !== "terminal");
@@ -185,11 +189,11 @@ function App() {
     ? nativeSplit?.left === leftId && nativeSplit?.right === rightId
     : !nativeSplit;
   const liveBrowser = webPanes.find(tab => tab.id === browser.active) || webPanes[0];
-  const liveBrowserVisible = !managementPage && !desktopOpen && !showHome && status?.ready &&
+  const liveBrowserVisible = !managementPage && !anyDesktopOpen && !showHome && status?.ready &&
     liveBrowser && splitReady && (!split || browser.active === liveBrowser.id);
   const viewBeforeBrowser = useRef(null);
   const browserDismissed = useRef(false);
-  const browserVisible = !desktopOpen && !showHome && webPanes.length > 0;
+  const browserVisible = !anyDesktopOpen && !showHome && webPanes.length > 0;
   const browserWasVisible = useRef(false);
   useEffect(() => {
     // Preserve the return destination until the last tab's removal is handled,
@@ -302,8 +306,9 @@ function App() {
   // A plugin page may mark its notice as an error, shown in the error color.
   const notify = (text, tone) => { setToast(text); setToastTone(tone === "error" ? "error" : ""); };
   const accountDesktops = useAccountDesktops(
-    () => {setManagementPage(""); setHome(false); setDesktopOpen(true);},
+    () => {setManagementPage(""); setActiveAIDesktop(""); setHome(false); setDesktopOpen(true);},
     () => {setDesktopOpen(false); setHome(true);}, notify, (...args) => confirm(...args), desktopOpen && running && status?.account_desktops_supported && !managementPage, status?.desktop_catalog_revision);
+  const aiDesktops = useAIDesktops(running, status?.job?.id || "");
   const viewingAccountDesktop = desktopOpen && accountDesktops.panes.length > 0;
   const audio = useAudioOutput(running && !viewingAccountDesktop && !storageRecovery && !status?.environment_update_required && !connectionError);
   useEffect(() => {
@@ -383,6 +388,7 @@ function App() {
     const tab = tabs.find((t) => t.id === id);
     if (tab && tab.kind !== "terminal") browserDismissed.current = false;
     setDesktopOpen(false);
+    setActiveAIDesktop("");
     setHome(false);
     if (tab?.kind === "browser-settings") setLayout({ active: id });
     else setActive(id);
@@ -455,6 +461,7 @@ function App() {
     if (result) {
       setManagementPage("");
       setDesktopOpen(false);
+      setActiveAIDesktop("");
       setHome(false);
       setTabs((list) =>
         list.some((t) => t.id === result.id)
@@ -479,7 +486,7 @@ function App() {
     if (!result?.id) return;
     browserDismissed.current = false;
     setTailnetLogin(null);
-    setManagementPage(""); setDesktopOpen(false); setHome(false);
+    setManagementPage(""); setDesktopOpen(false); setActiveAIDesktop(""); setHome(false);
     setTabs(previous => previous.some(tab => tab.id === result.id)
       ? previous.map(tab => tab.id === result.id ? { ...tab, ...result } : tab)
       : [...previous, result]);
@@ -545,6 +552,7 @@ function App() {
     setTabs((list) => [...list.filter((t) => t.id !== tab.id && (!tab.cli_session_id || t.cli_session_id !== tab.cli_session_id)), tab]);
     setSelectedProject(result.workspace);
     setDesktopOpen(false);
+    setActiveAIDesktop("");
     setHome(false);
     setActive(tab.id);
   };
@@ -612,6 +620,7 @@ function App() {
     if (result) {
       setManagementPage("");
       setDesktopOpen(false);
+      setActiveAIDesktop("");
       setHome(false);
       setTabs((list) =>
         list.some((t) => t.id === result.id)
@@ -1173,6 +1182,7 @@ function App() {
         )
           document.dispatchEvent(new Event("cage-close-modal"));
         else if (desktopOpen) setDesktopOpen(false);
+        else if (activeAIDesktop) setActiveAIDesktop("");
         else if (current) await closeTab(current);
       }
       if (command === "quit") {
@@ -1540,7 +1550,7 @@ function App() {
             running={running}
             runtimeLabel={runtimeLabel}
             network={network}
-            onHome={() => { setManagementPage(""); setDesktopOpen(false); setHome(true); }}
+            onHome={() => { setManagementPage(""); setDesktopOpen(false); setActiveAIDesktop(""); setHome(true); }}
             onOpenProject={(path = "") => setProjectDialog({ path })}
             onSelect={select}
             onClose={closeTab}
@@ -1562,7 +1572,37 @@ function App() {
             desktopOpen={!managementPage && desktopOpen}
             onClaudeWeb={() => openBrowserPage("https://claude.ai/")}
             accountDesktops={status.account_desktops_supported ? accountDesktops : null}
-            onClaudeDesktop={() => { accountDesktops.clear(); setManagementPage(""); setHome(false); setDesktopOpen(true); }}
+            onClaudeDesktop={() => { accountDesktops.clear(); setActiveAIDesktop(""); setManagementPage(""); setHome(false); setDesktopOpen(true); }}
+            aiDesktops={aiDesktops}
+            aiDesktopHubOpen={managementPage === "ai-desktops"}
+            activeAIDesktop={!managementPage ? activeAIDesktop : ""}
+            onOpenAIDesktopHub={() => {
+              setManagementPage("ai-desktops");
+              if (window.matchMedia("(max-width: 520px)").matches) setSidebarCollapsed(true);
+            }}
+            onSelectAIDesktop={(id) => {
+              accountDesktops.clear();
+              setDesktopOpen(false);
+              setManagementPage("");
+              setHome(false);
+              setActiveAIDesktop(id);
+            }}
+            onStopAIDesktop={async (app) => {
+              if (
+                await confirm({
+                  title: `关闭 ${app.name}？`,
+                  body: "请先保存应用内的工作。浏览器和 Cage 终端会继续运行。",
+                  confirm: "关闭应用",
+                })
+              ) {
+                try {
+                  await api(`/ai-desktops/${app.id}/stop`, {});
+                  void aiDesktops.refresh();
+                } catch (e) {
+                  notify(e.message, "error");
+                }
+              }
+            }}
             onEditor={openEditor}
             onSettings={openSettings}
             onAccountConfirm={confirm}
@@ -1595,10 +1635,19 @@ function App() {
             <main className="management-page" aria-labelledby={managementPage + "-title"}>
               <header className="chrome management-header">
                 {sidebarButton()}
-                <h1 id={managementPage + "-title"} tabIndex={-1}>{managementPage === "tailscale" ? "Tailscale" : managementPage === "plugins" && pluginPage ? pluginPageTitle(hostPlugins, pluginPage) : managementPage === "plugin-view" ? openPage?.title || tr("插件页面") : tr("Claude 账号管理")}</h1>
+                <h1 id={managementPage + "-title"} tabIndex={-1}>{managementPage === "tailscale" ? "Tailscale" : managementPage === "ai-desktops" ? tr("AI Desktops") : managementPage === "plugins" && pluginPage ? pluginPageTitle(hostPlugins, pluginPage) : managementPage === "plugin-view" ? openPage?.title || tr("插件页面") : tr("Claude 账号管理")}</h1>
               </header>
               <div className="management-content">
-                {managementPage === "plugin-view" ? <PluginView key={pluginView} plugin={openPage?.plugin || pluginView.split("/")[0]} view={openPage?.view || { id: pluginView.split("/")[1] || "" }}
+                {managementPage === "ai-desktops" ? <AIDesktopHub model={aiDesktops} status={status}
+                  onSelectApp={(id) => {
+                    accountDesktops.clear();
+                    setDesktopOpen(false);
+                    setManagementPage("");
+                    setHome(false);
+                    setActiveAIDesktop(id);
+                  }}
+                  onConfirm={confirm} onStatus={notify} onDetails={() => setDetails(true)} />
+                : managementPage === "plugin-view" ? <PluginView key={pluginView} plugin={openPage?.plugin || pluginView.split("/")[0]} view={openPage?.view || { id: pluginView.split("/")[1] || "" }}
                   onConfirm={confirm} onNotify={notify} onOpenUrl={async url => Boolean(await openBrowserPage(url, false))} />
                 : managementPage === "plugins" ? pluginPage && <HostPluginsPanel model={hostPlugins} page={pluginPage} onPage={openPluginPage} status={status} onConfirm={confirm} /> : managementPage === "tailscale" ? <TailscalePanel status={status}
                   onOpenBrowser={async url => Boolean(await openBrowserPage(url, false))}
@@ -1628,6 +1677,17 @@ function App() {
               sidebarCollapsed={sidebarCollapsed}
               onExpand={() => persist("cage-sidebar-collapsed", false, setSidebarCollapsed)}
             />}
+            {!storageRecovery && activeAIDesktop && <AIDesktopView
+              key={activeAIDesktop}
+              appId={activeAIDesktop}
+              initialApp={aiDesktops.apps.find((item) => item.id === activeAIDesktop)}
+              status={status} visible={!settingsOpen && !managementPage} remoteRef={remote}
+              onStatus={notify} onFallback={(text, message) => setTransfer({ text, message })}
+              onConfirm={confirm} onDetails={() => setDetails(true)}
+              sidebarCollapsed={sidebarCollapsed}
+              onExpand={() => persist("cage-sidebar-collapsed", false, setSidebarCollapsed)}
+              onCatalogRefresh={() => void aiDesktops.refresh()}
+            />}
             {status.environment_update_required && !busy && (
               <div className="environment-update-banner" role="status">
                 <span>{status.environment_update_error || tr("环境组件需要更新。请先保存编辑器中的文件。")}</span>
@@ -1636,7 +1696,7 @@ function App() {
             )}
             {!storageRecovery && (status.vm_running || terminal) && (
               <>
-                {!desktopOpen && !showHome && webPanes.length > 0 && (
+                {!anyDesktopOpen && !showHome && webPanes.length > 0 && (
                   <section className={`pane-lane browser-lane ${browserTabLayout === "vertical" ? "vertical-browser" : ""} ${dualBrowser ? "" : "split-" + paneSide(webPanes[0].id)}`}>
                     {browserTabLayout === "vertical" && <BrowserTabRail tabs={browserTabs} metadata={metadata}
                       active={liveBrowser?.id} ready={status.ready} busy={busy} splitDrag={splitDrag}
@@ -1674,7 +1734,7 @@ function App() {
                   </section>
                 )}
                 {tabs.filter(t => t.kind === "terminal").map(tab => {
-                  const visible = !desktopOpen && !showHome && panes.some(pane => pane.id === tab.id);
+                  const visible = !anyDesktopOpen && !showHome && panes.some(pane => pane.id === tab.id);
                   return <section key={tab.id} className={`pane-lane terminal-lane split-${paneSide(tab.id)}`}
                     data-focused={active === tab.id} hidden={!visible}
                     onPointerDownCapture={() => focusHeader(tab)} onFocusCapture={() => focusHeader(tab)}>

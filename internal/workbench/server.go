@@ -50,6 +50,7 @@ type Server struct {
 	desktopDisplayUpdate                             func(bool) error
 	browserViews                                     displayViewDemand
 	desktopStatus                                    desktopStatusCache
+	aiDesktopsMu                                     sync.Mutex
 	agentNativeQueue                                 agentNativeQueue
 	clipboardFiles                                   map[string]clipboardFileSelection
 	clipboardRelease                                 func([]string)
@@ -462,6 +463,15 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("GET /api/claude-desktop/vnc", s.claudeDesktopVNC)
 	mux.HandleFunc("POST /api/claude-desktop/resize", s.claudeDesktopResize)
 	mux.HandleFunc("POST /api/claude-desktop/{action}", s.claudeDesktopAction)
+	mux.HandleFunc("GET /api/ai-desktops", s.listAIDesktops)
+	mux.HandleFunc("POST /api/ai-desktops/custom", s.addCustomAIDesktop)
+	mux.HandleFunc("DELETE /api/ai-desktops/custom/{id}", s.deleteCustomAIDesktop)
+	mux.HandleFunc("POST /api/ai-desktops/{id}/pin", s.pinAIDesktop)
+	mux.HandleFunc("GET /api/ai-desktops/{id}/status", s.aiDesktopStatus)
+	mux.HandleFunc("GET /api/ai-desktops/{id}/vnc-credentials", s.aiDesktopCredentials)
+	mux.HandleFunc("GET /api/ai-desktops/{id}/vnc", s.aiDesktopVNC)
+	mux.HandleFunc("POST /api/ai-desktops/{id}/resize", s.aiDesktopResize)
+	mux.HandleFunc("POST /api/ai-desktops/{id}/{action}", s.aiDesktopAction)
 	mux.HandleFunc("GET /api/terminals", s.listTerminals)
 	mux.HandleFunc("GET /api/audio", s.audio)
 	mux.HandleFunc("GET /api/clipboard", s.sharedClipboard)

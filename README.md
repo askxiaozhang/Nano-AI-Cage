@@ -44,6 +44,7 @@ Claude Cage 在一个小型的 Debian 13 环境里运行官方 Claude Code 和 C
 ## 你可以用它做什么
 
 - **在一个窗口里完成工作。** 用终端运行 Claude Code，用编辑器查看改动，用 Cage 浏览器预览服务和完成登录。
+- **下载并运行各类 AI Desktop 应用。** 在 Cage 隔离环境中一键安装 ChatGPT Desktop、Cherry Studio、Chatbox、OpenCode、Cursor、Devin Desktop 或自定义 `.deb` / `.AppImage` 应用，并在左侧边栏像 Claude Desktop 一样直接切换运行。
 - **三个平台，同一个环境。** macOS、Windows 和 Linux 上的 Cage 都使用同一个 Debian 13 环境，工具与操作方式一致。 [Debian 环境](docs/guide/guest-systems.md)
 - **控制共享范围。** 只共享默认工作区和明确打开的项目文件夹；主机的 Claude 登录、浏览器配置和 SSH 密钥不会自动导入。
 - **看清网络状态。** 内置代理管理支持导入订阅、选择节点和检查出口。关键检查未通过时，环境保持离线；代理不可用时没有直连回退。
@@ -97,6 +98,45 @@ macOS 和已签名 Windows 版本支持通过所选代理更新；Windows 未签
 ### 3. 打开项目，运行 Claude
 
 点击“打开项目”选择本机上的文件夹，再新建终端，输入 `claude`，在 Cage 浏览器中完成自己的账户授权。也可以先使用默认工作区，无需提前准备项目。完整步骤见[开始使用](docs/getting-started.md)。
+
+## AI Desktops（多 AI 桌面应用）
+
+除了内置的 Claude Desktop，Cage 还支持在同一个隔离的 Debian 13 环境中下载、管理并运行其他主流 AI 桌面应用。所有应用流量自动走 Cage 代理，每个应用运行在独立的图形会话中（显示号 `:81`–`:99`，互不干扰），登录态与配置保留在虚拟磁盘内。
+
+### 内置支持的应用
+
+| 应用 | 简介 | 支持架构 | 官方来源 |
+|---|---|---|---|
+| **ChatGPT Desktop** | OpenAI 官方桌面端，集成 ChatGPT 与 Codex | `amd64` / `arm64` | [OpenAI Linux 文档](https://learn.chatgpt.com/docs/linux/linux-app) |
+| **Cherry Studio** | 开源多模型 AI 桌面客户端，支持 MCP 与多服务商 | `amd64` / `arm64` | [GitHub Releases](https://github.com/CherryHQ/cherry-studio/releases) |
+| **Chatbox** | 轻量跨平台 AI 桌面客户端，支持自定义 API Key | `amd64` / `arm64` | [GitHub Releases](https://github.com/chatboxai/chatbox/releases) |
+| **OpenCode Desktop** | 开源 AI 编程 Agent 桌面应用 | `amd64` / `arm64` | [GitHub Releases](https://github.com/anomalyco/opencode/releases) |
+| **Cursor** | AI 原生代码编辑器，内置智能补全与 Agent | `amd64` / `arm64` | [Cursor 官网](https://cursor.com/download) |
+| **Devin Desktop (Windsurf)** | Cognition AI 编程桌面 IDE | `amd64` | [Devin 文档](https://docs.devin.ai/desktop/getting-started) |
+
+### 使用教程
+
+1. **进入应用中心下载安装**
+   - 启动 Cage 环境后，点击左侧边栏 `Claude Desktop` 下方的 **AI Desktops**。
+   - 在应用卡片上点击 **下载并安装**，可在顶部进度条或“操作详情”中查看下载与安装日志。
+   - 安装完成后会自动启动应用，并将其固定到左侧边栏。
+
+2. **在左侧边栏直接运行与切换**
+   - 已安装或手动固定（点击卡片右上角图钉按钮）的 AI Desktop 应用会直接显示在左侧边栏的 **AI Desktops** 列表下。
+   - 点击应用名称即可像使用 Claude Desktop 一样切换到嵌入式画面；运行中的应用右侧会显示绿色圆点 `●` 和快捷关闭按钮。
+   - 顶部工具栏支持调整显示缩放比例、隐藏/显示工具栏、更新应用和关闭应用；关闭应用会释放图形会话资源，账号与本地数据继续保留。
+
+3. **添加自定义 AI Desktop（支持 `.deb` / `.AppImage` / GitHub 仓库）**
+   - 在 **AI Desktops** 页面右上角点击 **添加自定义应用**。
+   - 填写应用名称和下载源，支持三种格式：
+     - HTTPS `.deb` 安装包直链（例如 `https://.../app.deb`）
+     - HTTPS `.AppImage` 直链（例如 `https://.../app.AppImage`，安装时会自动解压运行，无需 FUSE）
+     - GitHub 仓库路径（例如 `janhq/jan`，自动拉取最新 Release 中匹配当前架构的 `.deb`）
+   - 启动命令可留空，系统会自动从 `.deb` 桌面入口或 AppImage 的 `AppRun` 识别。
+
+4. **更新、卸载与架构说明**
+   - 在 **AI Desktops** 卡片或应用顶部工具栏中点击 **更新** 可重新拉取最新版本；点击垃圾桶图标可卸载应用（通常保留用户配置目录）。
+   - Apple Silicon Mac 客机为 `arm64`，Windows / Linux x64 客机为 `amd64`。若某个应用仅提供单架构包，卡片会提示支持的架构。
 
 ## 使用前了解这些边界
 

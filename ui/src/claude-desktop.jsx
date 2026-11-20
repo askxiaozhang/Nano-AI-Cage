@@ -89,7 +89,7 @@ export function DesktopToolbar({ desktop, platform, title = "Claude Desktop", zo
             onClick={async () => {
               if (
                 await onConfirm({
-                  title: "关闭 Claude Desktop？",
+                  title: `关闭 ${title}？`,
                   body: "请先保存应用内的工作。浏览器和 Cage 终端会继续运行。",
                   confirm: "关闭应用",
                 })

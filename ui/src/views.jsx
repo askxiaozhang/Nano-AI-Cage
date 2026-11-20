@@ -30,7 +30,7 @@ import { useTranslation, translate } from "./interface-language.mjs";
 const terminalAccountRequest = (path, options) => api("/cli" + path, options.body);
 
 export const RemoteView = forwardRef(function RemoteView(
-  { visible, focused = true, keyboard, systemClipboard = true, tabId, copyScope = tabId, onStatus, onFallback, desktop = false, zoom = 1 },
+  { visible, focused = true, keyboard, systemClipboard = true, tabId, copyScope = tabId, onStatus, onFallback, desktop = false, vncPrefix = "", zoom = 1 },
   ref,
 ) {
   const windowVisible = useWindowVisibility();
@@ -82,7 +82,7 @@ export const RemoteView = forwardRef(function RemoteView(
         Math.min(1000 * 2 ** failures.current++, 5000),
       );
     };
-    const desktopPrefix = desktop ? "/claude-desktop" : "";
+    const desktopPrefix = vncPrefix || (desktop ? "/claude-desktop" : "");
     api(`${desktopPrefix}/vnc-credentials`)
       .then(({ password, display_scale, dynamic_scale, pixel_wheel }) => {
         if (disposed) return;
@@ -115,7 +115,7 @@ export const RemoteView = forwardRef(function RemoteView(
           setConnection("connected");
           sizeSync = displaySizeSync(
             async (size) => {
-              const reply = await api(desktop ? "/claude-desktop/resize" : "/browser/resize", size);
+              const reply = await api(desktop ? `${desktopPrefix}/resize` : "/browser/resize", size);
               // The guest kept its own density: size the display for that one.
               if (size.scale !== undefined && reply?.scale !== size.scale && followScreen) {
                 followScreen = false;
@@ -260,7 +260,7 @@ export const RemoteView = forwardRef(function RemoteView(
       client?.disconnect();
       rfb.current = null;
     };
-  }, [attempt, screenVisible, desktop]);
+  }, [attempt, screenVisible, desktop, vncPrefix]);
   useEffect(() => {
     if (focused && screenVisible && connection === "connected") {
       const t = setTimeout(() => { if (!document.activeElement?.closest(".chrome")) rfb.current?.focus(); }, 80);

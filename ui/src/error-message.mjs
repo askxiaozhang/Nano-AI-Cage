@@ -25,6 +25,7 @@ export function operationName(path = "", method = "GET") {
   if (path.startsWith("/projects")) return "连接项目目录";
   if (path.startsWith("/account")) return "处理账户操作";
   if (path.startsWith("/claude-desktop")) return "操作 Claude Desktop";
+  if (path.startsWith("/ai-desktops")) return "操作 AI Desktop";
   if (path === "/token-usage") return reading ? "读取本地用量统计" : "更新本地用量统计";
   if (path.startsWith("/terminals")) return "连接终端";
   if (path === "/start") return "启动环境";

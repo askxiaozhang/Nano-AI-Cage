@@ -46,6 +46,18 @@ type AIDesktopSpec struct {
 func BuiltinAIDesktops() []AIDesktopSpec {
 	return []AIDesktopSpec{
 		{
+			ID:              "antigravity",
+			Name:            "Google Antigravity",
+			Description:     "Google 官方 Agentic 桌面应用，内置 Gemini 与多 Agent 编排工作区。",
+			Homepage:        "https://antigravity.google/download?os=linux",
+			Category:        "coding",
+			InstallType:     "antigravity-tarball",
+			ExecCommand:     "/opt/cage-ai-desktops/antigravity/antigravity",
+			Electron:        true,
+			SupportedArches: []string{"amd64", "arm64"},
+			DisplayNumber:   87,
+		},
+		{
 			ID:              "chatgpt",
 			Name:            "ChatGPT Desktop",
 			Description:     "OpenAI 官方桌面应用，集成 ChatGPT 与 Codex，支持本地项目与文件协作。",
@@ -386,6 +398,72 @@ PKG_VER="$(dpkg-query -W -f='${Version}' cursor 2>/dev/null || echo '')"
 EXEC_CMD="$(detect_deb_exec cursor)"
 write_meta "deb" "cursor" "$EXEC_CMD" "$PKG_VER" ""
 printf 'Cursor 已安装。\n'
+`
+
+	case "antigravity-tarball":
+		body = `
+printf '正在从 antigravity.google 解析最新官方 Linux 下载地址…\n'
+cage_curl_download "$temporary/download.html" --proto '=https' --proto-redir '=https' -fSL --connect-timeout 20 'https://antigravity.google/download?os=linux' -o "$temporary/download.html"
+DOWNLOAD_URL="$(/usr/bin/python3 - "$temporary/download.html" "$ARCH" <<'CAGE_AG_URL'
+import re, sys, urllib.request
+html = open(sys.argv[1], encoding="utf-8", errors="ignore").read()
+arch = sys.argv[2]
+arch_pat = r'(?:linux-arm64|linux-arm|linux-aarch64)' if arch == 'arm64' else r'(?:linux-x64|linux-amd64|linux-x86_64)'
+url_re = re.compile(r'https://[^"\'\s<>]+/' + arch_pat + r'/Antigravity\.tar\.gz')
+def find_in(text):
+    m = url_re.search(text)
+    return m.group(0) if m else ''
+found = find_in(html)
+if not found:
+    scripts = re.findall(r'src=["\']([^"\']*?(?:main|chunk)[^"\']*?\.js)["\']', html)
+    for s in scripts[:12]:
+        js_url = s if s.startswith('http') else 'https://antigravity.google/' + s.lstrip('/')
+        try:
+            with urllib.request.urlopen(js_url, timeout=20) as resp:
+                js = resp.read().decode('utf-8', errors='ignore')
+            found = find_in(js)
+            if found:
+                break
+        except Exception:
+            continue
+if found:
+    print(found)
+    sys.exit(0)
+sys.exit(1)
+CAGE_AG_URL
+)" || { echo "未能从 antigravity.google 解析 ${ARCH} 官方安装包链接，请检查网络后重试。" >&2; exit 1; }
+printf '正在下载 Google Antigravity (%s)…\n' "$ARCH"
+cage_curl_download "$temporary/antigravity.tar.gz" --proto '=https' --proto-redir '=https' -fSL --connect-timeout 20 "$DOWNLOAD_URL" -o "$temporary/antigravity.tar.gz"
+mkdir -p "$temporary/extracted"
+printf '正在解压安装 Google Antigravity…\n'
+tar -xzf "$temporary/antigravity.tar.gz" -C "$temporary/extracted"
+APP_DIR="/opt/cage-ai-desktops/antigravity"
+sudo rm -rf "$APP_DIR"
+sudo install -d -m 0755 /opt/cage-ai-desktops
+TOP_COUNT="$(find "$temporary/extracted" -mindepth 1 -maxdepth 1 | wc -l)"
+if [ "$TOP_COUNT" -eq 1 ] && [ -d "$(find "$temporary/extracted" -mindepth 1 -maxdepth 1)" ]; then
+  sudo mv "$(find "$temporary/extracted" -mindepth 1 -maxdepth 1)" "$APP_DIR"
+else
+  sudo mv "$temporary/extracted" "$APP_DIR"
+fi
+sudo chmod -R a+rX "$APP_DIR"
+EXEC_CMD="$(find "$APP_DIR" -maxdepth 2 -type f -name 'antigravity' -perm -u+x | head -n 1)"
+if [ -z "$EXEC_CMD" ]; then
+  EXEC_CMD="${APP_DIR}/antigravity"
+fi
+APP_VER="$(/usr/bin/python3 - "$APP_DIR" <<'CAGE_AG_VER'
+import json, pathlib, sys
+for p in [pathlib.Path(sys.argv[1]) / 'resources/app/package.json', pathlib.Path(sys.argv[1]) / 'package.json']:
+    if p.is_file():
+        try:
+            print(json.loads(p.read_text(encoding='utf-8')).get('version', ''))
+            sys.exit(0)
+        except Exception:
+            pass
+CAGE_AG_VER
+)"
+write_meta "tarball" "" "$EXEC_CMD" "${APP_VER:-2.x}" "$APP_DIR"
+printf 'Google Antigravity 已安装。\n'
 `
 
 	case "apt-devin":

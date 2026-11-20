@@ -89,7 +89,7 @@ if meta_dir.is_dir():
                 installed = True
                 if len(out) > 1 and out[1]:
                     version = out[1]
-        elif kind == 'appimage' and app_dir:
+        elif kind in ('appimage', 'tarball') and app_dir:
             installed = Path(app_dir).is_dir()
         unit = f'cage-ai-desktop-{app_id}.service'
         state = run('systemctl', 'is-active', unit)
@@ -351,7 +351,7 @@ func (s *Server) addCustomAIDesktop(w http.ResponseWriter, r *http.Request) {
 		usedDisplays[a.DisplayNumber] = true
 	}
 	displayNum := 0
-	for d := 87; d <= 99; d++ {
+	for d := 88; d <= 99; d++ {
 		if !usedDisplays[d] {
 			displayNum = d
 			break

@@ -107,6 +107,7 @@ macOS 和已签名 Windows 版本支持通过所选代理更新；Windows 未签
 
 | 应用 | 简介 | 支持架构 | 官方来源 |
 |---|---|---|---|
+| **Google Antigravity** | Google 官方 Agentic 桌面应用，内置 Gemini 与多 Agent 编排 | `amd64` / `arm64` | [Antigravity 官方下载](https://antigravity.google/download?os=linux) |
 | **ChatGPT Desktop** | OpenAI 官方桌面端，集成 ChatGPT 与 Codex | `amd64` / `arm64` | [OpenAI Linux 文档](https://learn.chatgpt.com/docs/linux/linux-app) |
 | **Cherry Studio** | 开源多模型 AI 桌面客户端，支持 MCP 与多服务商 | `amd64` / `arm64` | [GitHub Releases](https://github.com/CherryHQ/cherry-studio/releases) |
 | **Chatbox** | 轻量跨平台 AI 桌面客户端，支持自定义 API Key | `amd64` / `arm64` | [GitHub Releases](https://github.com/chatboxai/chatbox/releases) |

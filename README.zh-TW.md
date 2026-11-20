@@ -1,12 +1,12 @@
 <div align="center">
 
-<h1>Claude Cage</h1>
+<h1>Nano-AI-CAGE</h1>
 
 **把 Claude 大小姐關起來，為了更好地保護我們的相遇**
 
-<img src="assets/claude-cage-character.png" alt="Claude Cage" width="320" />
+<img src="assets/claude-cage-character.png" alt="Nano-AI-CAGE" width="320" />
 
-[![Release](https://img.shields.io/github/v/release/Lee-xeo/Claude-Cage?include_prereleases)](https://github.com/Lee-xeo/Claude-Cage/releases) [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/askxiaozhang/Nano-AI-Cage?include_prereleases)](https://github.com/askxiaozhang/Nano-AI-Cage/releases) [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 <a href="https://trendshift.io/repositories/339051#achievements"><img src="https://trendshift.io/api/badge/trendshift/repositories/339051/daily?language=Go" alt="Trendshift — Go Repository of the Day" width="250" height="55" /></a> <a href="https://trendshift.io/repositories/339051#achievements"><img src="https://trendshift.io/api/badge/trendshift/repositories/339051/weekly?language=Go" alt="Trendshift — Go Repository of the Week" width="250" height="55" /></a>
 
@@ -20,9 +20,9 @@
 
 ## 受夠了 Anthropic
 
-作為一個只是想和 Claude 對話與合作的正常使用者，受夠了折騰各種 VPS，指紋瀏覽器，環境檢測，面對封號的擔驚受怕和財產損失。我們提出 **Claude Cage** 專案：**一個開箱即用的桌面程式，配置好自己的網路代理，集中管理隔離環境、時區語言和環境檢查。**
+作為一個只是想和 Claude 對話與合作的正常使用者，受夠了折騰各種 VPS，指紋瀏覽器，環境檢測，面對封號的擔驚受怕和財產損失。我們提出 **Nano-AI-CAGE** 專案：**一個開箱即用的桌面程式，配置好自己的網路代理，集中管理隔離環境、時區語言和環境檢查。**
 
-Claude Cage 在一個小型的 Debian 13 環境裡執行官方 Claude Code 和 Claude Desktop，macOS、Windows 和 Linux 上都是同一個環境。終端、瀏覽器、編輯器和官方 Claude Desktop 集中在同一個工作臺，專案按需共享，網路獨立管理；還能連接自己的伺服器，或用手機接續電腦上的工作。主要功能包括：
+Nano-AI-CAGE 在一個小型的 Debian 13 環境裡執行官方 Claude Code 和 Claude Desktop，macOS、Windows 和 Linux 上都是同一個環境。終端、瀏覽器、編輯器和官方 Claude Desktop 集中在同一個工作臺，專案按需共享，網路獨立管理；還能連接自己的伺服器，或用手機接續電腦上的工作。主要功能包括：
 
 - 和主機隔離的網路設定，Cage 自己接管和代理內部的所有網路流量
 - 和主機隔離的指紋設定，包括時區、語言等，支援自動與代理 IP 同步
@@ -59,7 +59,7 @@ Claude Cage 在一個小型的 Debian 13 環境裡執行官方 Claude Code 和 C
 把這句話發給你的 agent（codex，dsh，workbuddy，反正不會是 claude code😁）
 
 ```markdown
-幫我拉取 https://github.com/Lee-xeo/Claude-Cage 的最新原始碼，打包安裝，並設定 Cage 的代理，透過我本機 Clash 的 xx 節點使用我的 xx IP 出口。全程盯著，有問題直接修復，必要時順手向專案提交 issue，幫助改善相容性。
+幫我拉取 https://github.com/askxiaozhang/Nano-AI-Cage 的最新原始碼，打包安裝，並設定 Cage 的代理，透過我本機 Clash 的 xx 節點使用我的 xx IP 出口。全程盯著，有問題直接修復，必要時順手向專案提交 issue，幫助改善相容性。
 ```
 
 你唯一需要的，是一個靠譜的代理節點，本專案不做任何代理推廣，可以自行搜尋黑色錯誤網站解決。
@@ -74,7 +74,7 @@ Cage 支援 macOS、Windows 和 Linux：macOS 14+ 的 Apple Silicon Mac、Window
 
 安裝包隨附工作臺和代理核心，無需先安裝 Go、Node.js、Docker 或 Clash。首次建立環境時選擇儲存位置，Cage 會下載 Debian 13 映像和開發工具。Cage 不提供代理服務或 Claude 帳戶。
 
-原始碼與安裝包公開，版本說明和校驗檔案見 [Releases](https://github.com/Lee-xeo/Claude-Cage/releases)。
+原始碼與安裝包公開，版本說明和校驗檔案見 [Releases](https://github.com/askxiaozhang/Nano-AI-Cage/releases)。
 
 功能以所用建置為準，公開安裝包的能力與驗證範圍以發行說明為準。
 
@@ -113,7 +113,7 @@ macOS 和已簽章 Windows 版本支援透過所選代理更新；Windows 未簽
 | 第一次安裝、配置代理、開啟專案 | [開始使用](docs/getting-started.md) |
 | 處理下載、啟動、聯網和登入問題 | [常見問題與恢復](docs/troubleshooting.md) |
 | 瞭解按鍵、外觀、資料儲存和退出行為 | [日常使用](docs/getting-started.md#日常使用) |
-| 報告可復現問題 | [GitHub Issues](https://github.com/Lee-xeo/Claude-Cage/issues) |
+| 報告可復現問題 | [GitHub Issues](https://github.com/askxiaozhang/Nano-AI-Cage/issues) |
 | 貢獻修正、功能或文件：Issue 審核 → 協作者邀請 → PR | [貢獻指南（簡體中文）](.github/CONTRIBUTING.md) |
 
 本專案仍在快速迭代中，歡迎加入交流群提意見，歡迎社群大佬一起維護
@@ -148,10 +148,10 @@ Cage 是獨立社群專案，與 Anthropic 無隸屬關係。
 - [claude-post-ban-cleanup](https://github.com/l2461090/claude-post-ban-cleanup): 精確盤點、保護使用者資料與可復原快取清理的流程參考；Cage 獨立實作。
 
 
-<a href="https://www.star-history.com/?repos=Lee-xeo%2FClaude-Cage&amp;type=date">
+<a href="https://www.star-history.com/?repos=askxiaozhang%2FNano-AI-Cage&amp;type=date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date&amp;theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date" />
-    <img alt="Claude Cage 的 GitHub Star 成長曲線" src="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date" width="800" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date&amp;theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date" />
+    <img alt="Nano-AI-CAGE 的 GitHub Star 成長曲線" src="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date" width="800" />
   </picture>
 </a>

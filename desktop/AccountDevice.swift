@@ -49,7 +49,7 @@ final class CageAccountDevice: NSObject, URLSessionTaskDelegate, @unchecked Send
 }
 
 enum CageAccountKeychain {
-    private static let service = "io.github.lee-xeo.claude-cage.account"
+    private static let service = "io.github.askxiaozhang.nano-ai-cage.account"
     private static func query(binding: String, kind: String) -> [String: Any] {
         var result: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
          kSecAttrService as String: service,

@@ -3,7 +3,7 @@ import CryptoKit
 import Security
 import Darwin
 
-let cageUpdateBundleID = "io.github.lee-xeo.claude-cage"
+let cageUpdateBundleID = "io.github.askxiaozhang.nano-ai-cage"
 
 enum CageProfile {
     static var clientOnly: Bool { Bundle.main.object(forInfoDictionaryKey: "CageClientOnly") as? Bool == true }
@@ -13,9 +13,9 @@ enum CageProfile {
             return URL(fileURLWithPath: path).standardizedFileURL
         }
         if intelMacTest {
-            return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude-cage-intel-test/config.json")
+            return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".nano-ai-cage-intel-test/config.json")
         }
-        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(clientOnly ? ".claude-cage/client/config.json" : ".claude-cage/config.json")
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(clientOnly ? ".nano-ai-cage/client/config.json" : ".nano-ai-cage/config.json")
     }
 
     // Every helper and relaunched app inherits the same absolute profile, even

@@ -1,12 +1,12 @@
 <div align="center">
 
-<h1>Claude Cage</h1>
+<h1>Nano-AI-CAGE</h1>
 
 **ሚስ ክላውድ ኣብ ጓጓ ኣቐምጥዋ፡ ምእንቲ ብሓባር ዘለና ግዜ ብዝበለጸ ክንከላኸለሉ ንኽእል**
 
-<img src="assets/claude-cage-character.png" alt="Claude Cage" width="320" />
+<img src="assets/claude-cage-character.png" alt="Nano-AI-CAGE" width="320" />
 
-[![Release](https://img.shields.io/github/v/release/Lee-xeo/Claude-Cage?include_prereleases)](https://github.com/Lee-xeo/Claude-Cage/releases) [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/askxiaozhang/Nano-AI-Cage?include_prereleases)](https://github.com/askxiaozhang/Nano-AI-Cage/releases) [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 <a href="https://trendshift.io/repositories/339051#achievements"><img src="https://trendshift.io/api/badge/trendshift/repositories/339051/daily?language=Go" alt="Trendshift — Go Repository of the Day" width="250" height="55" /></a> <a href="https://trendshift.io/repositories/339051#achievements"><img src="https://trendshift.io/api/badge/trendshift/repositories/339051/weekly?language=Go" alt="Trendshift — Go Repository of the Week" width="250" height="55" /></a>
 
@@ -20,9 +20,9 @@
 
 ## ብAnthropic ተሰላቺና
 
-ከም ተራ ተጠቀምቲ ምስ ክላውድ ጥራይ ክንዛረብን ክንተሓባበርን እንደሊ፡ ብዛዕባ እገዳ ኣካውንትን ፋይናንሳዊ ክሳራን እናተጨነቕና፡ ንVPS instances፡ ናይ መርበብ ሓበሬታ ኣሰር ኣጻብዕቲ ፕሮፋይላት፡ ከምኡ’ውን ናይ ከባቢ ምፍታሽ ምውቃር ደኺምና ኣለና። ነቕርብ **Claude Cage** — **ንኣጠቓቕማ ድሉው ዝኾነ ናይ ዴስክቶፕ መተግበሪ: ናይ ገዛእ ርእስኻ ናይ መርበብ ፕሮክሲ ምውቃርን ነቲ ዝተነጸለ ከባቢኻ፣ ናይ ሰዓት ዞባኻ፣ ቋንቋኻን ከባብያኻ ምፍታሽ ኣብ ሓደ ቦታ ኣመሓድርን።**
+ከም ተራ ተጠቀምቲ ምስ ክላውድ ጥራይ ክንዛረብን ክንተሓባበርን እንደሊ፡ ብዛዕባ እገዳ ኣካውንትን ፋይናንሳዊ ክሳራን እናተጨነቕና፡ ንVPS instances፡ ናይ መርበብ ሓበሬታ ኣሰር ኣጻብዕቲ ፕሮፋይላት፡ ከምኡ’ውን ናይ ከባቢ ምፍታሽ ምውቃር ደኺምና ኣለና። ነቕርብ **Nano-AI-CAGE** — **ንኣጠቓቕማ ድሉው ዝኾነ ናይ ዴስክቶፕ መተግበሪ: ናይ ገዛእ ርእስኻ ናይ መርበብ ፕሮክሲ ምውቃርን ነቲ ዝተነጸለ ከባቢኻ፣ ናይ ሰዓት ዞባኻ፣ ቋንቋኻን ከባብያኻ ምፍታሽ ኣብ ሓደ ቦታ ኣመሓድርን።**
 
-Claude Cage ተርሚናል፣ መርበብ መዳህሰሲ፣ ኣርታዒን ወግዓዊ Claude Desktopን ኣብ ሓደ ዝተፈልየ ናይ ስራሕ ቦታ የዋህድ። ኣብ macOS፣ Windows ን Linux ን ሓደ ዓይነት ንእሽቶ Debian 13 ከባቢ ይጥቀም። ዝመረጽካዮም ፕሮጀክትታት ኣካፍል፣ መርበብ ብተናጻል ኣመሓድር፣ ምስ ናይ ገዛእ ርእስኻ ሰርቨር ብSSH ተራኸብ፣ ካብ ስልኪ ስራሕ ቀጽል። ቀንዲ ባህርያት፦
+Nano-AI-CAGE ተርሚናል፣ መርበብ መዳህሰሲ፣ ኣርታዒን ወግዓዊ Claude Desktopን ኣብ ሓደ ዝተፈልየ ናይ ስራሕ ቦታ የዋህድ። ኣብ macOS፣ Windows ን Linux ን ሓደ ዓይነት ንእሽቶ Debian 13 ከባቢ ይጥቀም። ዝመረጽካዮም ፕሮጀክትታት ኣካፍል፣ መርበብ ብተናጻል ኣመሓድር፣ ምስ ናይ ገዛእ ርእስኻ ሰርቨር ብSSH ተራኸብ፣ ካብ ስልኪ ስራሕ ቀጽል። ቀንዲ ባህርያት፦
 
 - ካብቲ ኣአንጋዲ ዝተነጸሉ ቅጥዕታት መርበብ፤ Cage ንኹሉ ኣብ ውሽጢ ከባቢኡ ዝርከብ ትራፊክ መርበብ ብናይ ገዛእ ርእሱ ኔትወርክ ፕሮክሲ የመሓላልፎ
 - ካብቲ ኣአንጋዲ ዝተነጸለ ቅጥዕታት ኣሰር ኣጻብዕቲ መርበብ ሓበሬታ፡ ዞባ ሰዓትን ቋንቋን ሓዊሱ፡ ምስ ኣውቶማቲክ ምትእስሳር ናብቲ ናይ መርበብ ፕሮክሲ IP ቦታ
@@ -59,7 +59,7 @@ Claude Cage ተርሚናል፣ መርበብ መዳህሰሲ፣ ኣርታዒን �
 ነዚ ሕቶ ናብ AI ወኪልካ ስደዶ (codex, dsh, workbuddy — ምናልባት ክላውድ ኮድ ኣይኮነን 😁):
 
 ```markdown
-ካብ https://github.com/Lee-xeo/Claude-Cage እቲ ሓድሽ ምንጪ ኮድ ኣምጽእ፣ ሃንጾ፣ ጠቕሊልካ ኣትክሎ። ፕሮክሲ Cage ብናይ ኣካባቢየይ Clash xx ኖድ ኣቢሉ ብናተይ xx IP ክወጽእ ኣዋቕሮ። ንብምሉኡ ሂደት ተኸታተል፣ ጸገማት ብቐጥታ ኣርም፣ እንተድልዩ ድማ ምስምማዕ ንምምሕያሽ ኣብ ፕሮጀክቱ issue ኣቕርብ።
+ካብ https://github.com/askxiaozhang/Nano-AI-Cage እቲ ሓድሽ ምንጪ ኮድ ኣምጽእ፣ ሃንጾ፣ ጠቕሊልካ ኣትክሎ። ፕሮክሲ Cage ብናይ ኣካባቢየይ Clash xx ኖድ ኣቢሉ ብናተይ xx IP ክወጽእ ኣዋቕሮ። ንብምሉኡ ሂደት ተኸታተል፣ ጸገማት ብቐጥታ ኣርም፣ እንተድልዩ ድማ ምስምማዕ ንምምሕያሽ ኣብ ፕሮጀክቱ issue ኣቕርብ።
 ```
 
 ዘድልየካ ዘተኣማምን ናይ መርበብ ፕሮክሲ መወዳእታ ነጥቢ ጥራይ እዩ። እዚ ፕሮጀክት ንዝኾነ ፕሮክሲ ወሃቢ ዘስፋሕፍሕ ኣይኮነን፤ ባዕልኻ ኣቕራቢ ክትረክብ ትኽእል ኢኻ፣ ንኣብነት ኣብ መርበብ ሓበሬታ Black Error ብምድላይ።
@@ -74,7 +74,7 @@ Cage macOS፣ Windows እና Linux ይድግፍ፦ Apple Silicon ምስ macOS 14
 
 መትከሊ ንናይ ስራሕ ቦታን ሞተር ፕሮክሲን የጠቓልል። Go፣ Node.js፣ Docker ወይ Clash ኣቐዲምካ ምትካል ኣየድልን። ኣከባቢ ክትፈጥር ከለኻ መኽዘኒ ቦታ ምረጽ፤ Cage ናይ Debian 13 ምስልን ናይ ምምዕባል መሳርሒታትን የውርድ። Cage ኣገልግሎት ፕሮክሲ ወይ ሕሳብ Claude ኣይህብን።
 
-ምንጪ ኮድን መትከልታትን ንህዝቢ ክፉት እዮም። መዘኻኸሪ ስሪትን ቼክሳምን ኣብ [Releases](https://github.com/Lee-xeo/Claude-Cage/releases) ተወከስ።
+ምንጪ ኮድን መትከልታትን ንህዝቢ ክፉት እዮም። መዘኻኸሪ ስሪትን ቼክሳምን ኣብ [Releases](https://github.com/askxiaozhang/Nano-AI-Cage/releases) ተወከስ።
 
 ባህርያት ብዝትጥቀመሉ ግንባታ ይውሰኑ፤ ናይ ህዝባዊ መጽዓኒ ዓቕምን ዶብ ፈተናን ኣብ ናይ ልቀት መዘኻኸሪ ይግለጹ።
 
@@ -113,7 +113,7 @@ macOS እና ዝተፈረሙ Windows ስሪቶች ብዝተመርጸ ፕሮክ�
 | ኔትወርክ ፕሮክሲ ምትካል፡ ምውቃር፡ ናይ መጀመርታ ፕሮጀክትካ ድማ ክፈት | [ምጅማር](docs/getting-started.md) |
 | ናይ ምውራድ፣ ምጅማር፣ ምትእስሳርን ምእታውን ጸገማት ምፍታሕ | [FAQን ምሕዋይን](docs/troubleshooting.md) |
 | ቁጽጽር ቁልፊ ሰሌዳ፡ መልክዕ፡ ጽንዓት ዳታን ናይ ምውጻእ ባህሪን ተማሃር | [መዓልታዊ ኣጠቓቕማ](docs/getting-started.md#日常使用) |
-| ክባዛሕ ዝኽእል ጉዳይ ሪፖርት ግበሩ | [GitHub Issues](https://github.com/Lee-xeo/Claude-Cage/issues) |
+| ክባዛሕ ዝኽእል ጉዳይ ሪፖርት ግበሩ | [GitHub Issues](https://github.com/askxiaozhang/Nano-AI-Cage/issues) |
 | ምእራም፣ ባህሪ ወይ ሰነድ ንምብርካት፦ Issue ግምገማ → ዕድመ ተሓባባሪ → PR | [መምርሒ ኣበርክቶ (ቻይንኛ)](.github/CONTRIBUTING.md) |
 
 እቲ ፕሮጀክት ብቕልጡፍ ይምዕብል ኣሎ። ርእይቶ ንምክፋል ኣብቲ ናይ ማሕበረሰብ ጉጅለ ​​ተጸንበሩ፤ ሕብረተሰብ ዝሕልዉ ሰባት ድሉዋት እዮም።
@@ -148,10 +148,10 @@ Cage ናጻ ማሕበረሰባዊ ፕሮጀክት ኮይኑ ምስ ኣንትሮ�
 - [claude-post-ban-cleanup](https://github.com/l2461090/claude-post-ban-cleanup): ንትኽክለኛ ቆጸራ፣ ንሓለዋ ዳታን ክምለስ ንዝኽእል ምጽራይ መሸጎጫን መወከሲ፤ Cage ብናጻ ኣተግቢሩዎ።
 
 
-<a href="https://www.star-history.com/?repos=Lee-xeo%2FClaude-Cage&amp;type=date">
+<a href="https://www.star-history.com/?repos=askxiaozhang%2FNano-AI-Cage&amp;type=date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date&amp;theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date" />
-    <img alt="Claude Cage GitHub Star History" src="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date" width="800" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date&amp;theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date" />
+    <img alt="Nano-AI-CAGE GitHub Star History" src="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date" width="800" />
   </picture>
 </a>

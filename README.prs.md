@@ -1,12 +1,12 @@
 <div align="center">
 
-<h1>Claude Cage</h1>
+<h1>Nano-AI-CAGE</h1>
 
 **خانم Claude را در Cage نگه دارید تا بتوانیم از زمان با هم بودنمان بهتر محافظت کنیم**
 
-<img src="assets/claude-cage-character.png" alt="Claude Cage" width="320" />
+<img src="assets/claude-cage-character.png" alt="Nano-AI-CAGE" width="320" />
 
-[![Release](https://img.shields.io/github/v/release/Lee-xeo/Claude-Cage?include_prereleases)](https://github.com/Lee-xeo/Claude-Cage/releases) [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/askxiaozhang/Nano-AI-Cage?include_prereleases)](https://github.com/askxiaozhang/Nano-AI-Cage/releases) [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 <a href="https://trendshift.io/repositories/339051#achievements"><img src="https://trendshift.io/api/badge/trendshift/repositories/339051/daily?language=Go" alt="Trendshift — Go Repository of the Day" width="250" height="55" /></a> <a href="https://trendshift.io/repositories/339051#achievements"><img src="https://trendshift.io/api/badge/trendshift/repositories/339051/weekly?language=Go" alt="Trendshift — Go Repository of the Week" width="250" height="55" /></a>
 
@@ -20,9 +20,9 @@
 
 ## از Anthropic خسته شده‌ایم
 
-به عنوان کاربران عادی که فقط می‌خواهیم با Claude صحبت و همکاری کنیم، از پیکربندی نمونه‌های VPS، نمایه‌های اثر انگشت مرورگر و بررسی‌های محیطی خسته شده‌ایم، در حالی که نگران ممنوعیت حساب‌ها و ضررهای مالی هستیم. ارائه می کنیم **Claude Cage** -**یک برنامه دسکتاپ آماده برای استفاده: پروکسی شبکه خود را پیکربندی کنید و بررسی های محیط ایزوله، منطقه زمانی، زبان و محیط را در یک مکان مدیریت کنید.**
+به عنوان کاربران عادی که فقط می‌خواهیم با Claude صحبت و همکاری کنیم، از پیکربندی نمونه‌های VPS، نمایه‌های اثر انگشت مرورگر و بررسی‌های محیطی خسته شده‌ایم، در حالی که نگران ممنوعیت حساب‌ها و ضررهای مالی هستیم. ارائه می کنیم **Nano-AI-CAGE** -**یک برنامه دسکتاپ آماده برای استفاده: پروکسی شبکه خود را پیکربندی کنید و بررسی های محیط ایزوله، منطقه زمانی، زبان و محیط را در یک مکان مدیریت کنید.**
 
-Claude Cage ترمینل، مرورگر، ویرایشگر و برنامۀ رسمی Claude Desktop را در یک محیط کاری جدا یکجا می‌کند. در macOS، Windows و Linux از همان محیط کوچک Debian 13 استفاده می‌شود. پروژه‌های دلخواه را شریک سازید، شبکه را جداگانه مدیریت کنید، با SSH به سرور خود وصل شوید و کارها را از تیلفون ادامه دهید. قابلیت‌های اصلی:
+Nano-AI-CAGE ترمینل، مرورگر، ویرایشگر و برنامۀ رسمی Claude Desktop را در یک محیط کاری جدا یکجا می‌کند. در macOS، Windows و Linux از همان محیط کوچک Debian 13 استفاده می‌شود. پروژه‌های دلخواه را شریک سازید، شبکه را جداگانه مدیریت کنید، با SSH به سرور خود وصل شوید و کارها را از تیلفون ادامه دهید. قابلیت‌های اصلی:
 
 - تنظیمات شبکه جدا شده از میزبان؛ Cage تمام ترافیک شبکه را در داخل محیط خود از طریق پراکسی شبکه خود هدایت می کند
 - تنظیمات اثر انگشت مرورگر جدا شده از میزبان، از جمله منطقه زمانی و زبان، با همگام‌سازی خودکار با مکان IP پروکسی شبکه
@@ -59,7 +59,7 @@ Claude Cage ترمینل، مرورگر، ویرایشگر و برنامۀ رس�
 این درخواست را برای عامل هوش مصنوعی خود (codex، dsh، workbuddy - احتمالاً Claude Code) ارسال کنید:
 
 ```markdown
-آخرین کد منبع https://github.com/Lee-xeo/Claude-Cage را دریافت کن، بساز، بسته‌بندی و نصب کن. پراکسی Cage را طوری تنظیم کن که از گره xx در Clash محلی من و خروجی IP من یعنی xx استفاده کند. تمام روند را زیر نظر بگیر، مشکلات را مستقیماً رفع کن و در صورت نیاز برای بهبود سازگاری در پروژه issue ثبت کن.
+آخرین کد منبع https://github.com/askxiaozhang/Nano-AI-Cage را دریافت کن، بساز، بسته‌بندی و نصب کن. پراکسی Cage را طوری تنظیم کن که از گره xx در Clash محلی من و خروجی IP من یعنی xx استفاده کند. تمام روند را زیر نظر بگیر، مشکلات را مستقیماً رفع کن و در صورت نیاز برای بهبود سازگاری در پروژه issue ثبت کن.
 ```
 
 تنها چیزی که نیاز دارید یک نقطه پایانی پروکسی شبکه قابل اعتماد است. این پروژه هیچ ارائه دهنده پروکسی را تبلیغ نمی کند. می توانید خودتان یک ارائه دهنده پیدا کنید، برای مثال با جستجوی وب سایت Black Error.
@@ -74,7 +74,7 @@ Cage از macOS، Windows و Linux پشتیبانی می‌کند: Apple Silicon
 
 بستۀ نصب شامل محیط کاری و موتور پراکسی است. نصب قبلی Go، Node.js، Docker یا Clash لازم نیست. هنگام ایجاد محیط، محل ذخیره را انتخاب کنید؛ Cage تصویر Debian 13 و ابزارهای توسعه را دانلود می‌کند. Cage خدمت پراکسی یا حساب Claude فراهم نمی‌کند.
 
-کد منبع و بسته‌های نصب عمومی هستند. یادداشت نسخه‌ها و فایل‌های بررسی صحت در [Releases](https://github.com/Lee-xeo/Claude-Cage/releases) قرار دارند.
+کد منبع و بسته‌های نصب عمومی هستند. یادداشت نسخه‌ها و فایل‌های بررسی صحت در [Releases](https://github.com/askxiaozhang/Nano-AI-Cage/releases) قرار دارند.
 
 قابلیت‌ها به ساخت مورد استفاده بستگی دارند؛ قابلیت‌ها و دامنهٔ بررسی نصب‌کنندهٔ عمومی در یادداشت انتشار آمده‌اند.
 
@@ -113,7 +113,7 @@ macOS و نسخه‌های امضاشدهٔ Windows از پراکسی انتخا
 | یک پروکسی شبکه را نصب کنید، پیکربندی کنید و اولین پروژه خود را باز کنید | [شروع کردن](docs/getting-started.md) |
 | عیب‌یابی دانلود، راه‌اندازی، اتصال و ورود به سیستم | [سوالات متداول و بازیابی](docs/troubleshooting.md) |
 | کنترل های صفحه کلید، ظاهر، ماندگاری داده ها و رفتار خروج را بیاموزید | [استفاده روزانه](docs/getting-started.md#日常使用) |
-| یک مشکل قابل تکرار را گزارش کنید | [GitHub Issues](https://github.com/Lee-xeo/Claude-Cage/issues) |
+| یک مشکل قابل تکرار را گزارش کنید | [GitHub Issues](https://github.com/askxiaozhang/Nano-AI-Cage/issues) |
 | مشارکت در اصلاح، قابلیت یا مستندات: بررسی Issue ← دعوت همکار ← PR | [راهنمای مشارکت (چینی)](.github/CONTRIBUTING.md) |
 
 این پروژه به سرعت در حال پیشرفت است. برای به اشتراک گذاشتن بازخورد به گروه جامعه بپیوندید. از نگهبانان جامعه استقبال می شود.
@@ -148,10 +148,10 @@ Cage یک پروژه اجتماعی مستقل است و به آنتروپیک �
 - [claude-post-ban-cleanup](https://github.com/l2461090/claude-post-ban-cleanup): مرجع برای فهرست‌برداری دقیق، حفاظت از داده‌ها و پاک‌سازی قابل‌بازیابی حافظهٔ نهان؛ پیاده‌سازی مستقل در Cage.
 
 
-<a href="https://www.star-history.com/?repos=Lee-xeo%2FClaude-Cage&amp;type=date">
+<a href="https://www.star-history.com/?repos=askxiaozhang%2FNano-AI-Cage&amp;type=date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date&amp;theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date" />
-    <img alt="Claude Cage GitHub Star History" src="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date" width="800" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date&amp;theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date" />
+    <img alt="Nano-AI-CAGE GitHub Star History" src="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date" width="800" />
   </picture>
 </a>

@@ -1,12 +1,12 @@
 <div align="center">
 
-<h1>Claude Cage</h1>
+<h1>Nano-AI-CAGE</h1>
 
 **Трымайце міс Клод у клетцы, каб мы маглі лепш абараніць наш час разам**
 
-<img src="assets/claude-cage-character.png" alt="Claude Cage" width="320" />
+<img src="assets/claude-cage-character.png" alt="Nano-AI-CAGE" width="320" />
 
-[![Release](https://img.shields.io/github/v/release/Lee-xeo/Claude-Cage?include_prereleases)](https://github.com/Lee-xeo/Claude-Cage/releases) [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/askxiaozhang/Nano-AI-Cage?include_prereleases)](https://github.com/askxiaozhang/Nano-AI-Cage/releases) [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 <a href="https://trendshift.io/repositories/339051#achievements"><img src="https://trendshift.io/api/badge/trendshift/repositories/339051/daily?language=Go" alt="Trendshift — Go Repository of the Day" width="250" height="55" /></a> <a href="https://trendshift.io/repositories/339051#achievements"><img src="https://trendshift.io/api/badge/trendshift/repositories/339051/weekly?language=Go" alt="Trendshift — Go Repository of the Week" width="250" height="55" /></a>
 
@@ -20,9 +20,9 @@
 
 ## Надакучыла Anthropic
 
-Як звычайныя карыстальнікі, якія проста хочуць паразмаўляць і супрацоўнічаць з Клодам, мы стаміліся ад наладжвання асобнікаў VPS, профіляў адбіткаў пальцаў у браўзеры і праверкі асяроддзя, адначасова турбуючыся аб забароне ўліковых запісаў і фінансавых стратах. Мы прадстаўляем **Claude Cage** — **гатовае да выкарыстання настольнае прыкладанне: наладзьце свой уласны сеткавы проксі і кіруйце ізаляваным асяроддзем, гадзінным поясам, мовай і праверкай асяроддзя ў адным месцы.**
+Як звычайныя карыстальнікі, якія проста хочуць паразмаўляць і супрацоўнічаць з Клодам, мы стаміліся ад наладжвання асобнікаў VPS, профіляў адбіткаў пальцаў у браўзеры і праверкі асяроддзя, адначасова турбуючыся аб забароне ўліковых запісаў і фінансавых стратах. Мы прадстаўляем **Nano-AI-CAGE** — **гатовае да выкарыстання настольнае прыкладанне: наладзьце свой уласны сеткавы проксі і кіруйце ізаляваным асяроддзем, гадзінным поясам, мовай і праверкай асяроддзя ў адным месцы.**
 
-Claude Cage аб’ядноўвае тэрмінал, браўзер, рэдактар і афіцыйны Claude Desktop у адным ізаляваным працоўным асяроддзі. На macOS, Windows і Linux выкарыстоўваецца адно і тое ж невялікае асяроддзе Debian 13. Адкрывайце доступ да выбраных праектаў, кіруйце сеткай асобна, падключайце свой сервер праз SSH і працягвайце працу з тэлефона. Асноўныя магчымасці:
+Nano-AI-CAGE аб’ядноўвае тэрмінал, браўзер, рэдактар і афіцыйны Claude Desktop у адным ізаляваным працоўным асяроддзі. На macOS, Windows і Linux выкарыстоўваецца адно і тое ж невялікае асяроддзе Debian 13. Адкрывайце доступ да выбраных праектаў, кіруйце сеткай асобна, падключайце свой сервер праз SSH і працягвайце працу з тэлефона. Асноўныя магчымасці:
 
 - Налады сеткі ізаляваны ад хаста; Cage накіроўвае ўвесь сеткавы трафік унутр свайго асяроддзя праз уласны сеткавы проксі
 - Налады адбіткаў пальцаў браўзера, ізаляваныя ад хаста, уключаючы гадзінны пояс і мову, з аўтаматычнай сінхранізацыяй з IP-месцазнаходжаннем сеткавага проксі
@@ -59,7 +59,7 @@ Claude Cage аб’ядноўвае тэрмінал, браўзер, рэдак
 Адпраўце гэты запыт свайму агенту штучнага інтэлекту (codex, dsh, workbuddy — верагодна, не Claude Code 😁):
 
 ```markdown
-Атрымай апошні зыходны код https://github.com/Lee-xeo/Claude-Cage, збяры пакет і ўсталюй яго. Наладзь проксі Cage на выкарыстанне вузла xx майго лакальнага Clash і выхад праз мой IP xx. Сачы за ўсім працэсам, адразу выпраўляй праблемы і пры неабходнасці ствары issue ў праекце, каб палепшыць сумяшчальнасць.
+Атрымай апошні зыходны код https://github.com/askxiaozhang/Nano-AI-Cage, збяры пакет і ўсталюй яго. Наладзь проксі Cage на выкарыстанне вузла xx майго лакальнага Clash і выхад праз мой IP xx. Сачы за ўсім працэсам, адразу выпраўляй праблемы і пры неабходнасці ствары issue ў праекце, каб палепшыць сумяшчальнасць.
 ```
 
 Усё, што вам трэба, гэта надзейная канчатковая кропка сеткавага проксі. Гэты праект не прасоўвае ніякіх проксі-правайдэраў; вы можаце знайсці пастаўшчыка самастойна, напрыклад, здзейсніўшы пошук на сайце Black Error.
@@ -74,7 +74,7 @@ Cage падтрымлівае macOS, Windows і Linux: Apple Silicon з macOS 14
 
 Усталёўшчык змяшчае працоўнае асяроддзе і ядро проксі. Загадзя ўсталёўваць Go, Node.js, Docker ці Clash не трэба. Пры стварэнні асяроддзя выберыце месца захоўвання; Cage спампуе вобраз Debian 13 і інструменты распрацоўкі. Cage не дае паслуг проксі ці акаўнтаў Claude.
 
-Зыходны код і ўсталёўшчыкі публічныя. Заўвагі да версій і кантрольныя сумы даступныя ў [Releases](https://github.com/Lee-xeo/Claude-Cage/releases).
+Зыходны код і ўсталёўшчыкі публічныя. Заўвагі да версій і кантрольныя сумы даступныя ў [Releases](https://github.com/askxiaozhang/Nano-AI-Cage/releases).
 
 Магчымасці залежаць ад зборкі; магчымасці і аб’ём праверкі публічнага ўсталёўшчыка пазначаны ў нататках да выпуску.
 
@@ -113,7 +113,7 @@ macOS і падпісаныя версіі Windows абнаўляюцца пра
 | Усталюйце, наладзьце сеткавы проксі і адкрыйце свой першы праект | [Пачатак працы](docs/getting-started.md) |
 | Выпраўленне непаладак спампоўкі, запуску, падключэння і ўваходу ў сістэму | [FAQ і аднаўленне](docs/troubleshooting.md) |
 | Вывучыце элементы кіравання з клавіятуры, знешні выгляд, захаванне даных і паводзіны пры выхадзе | [Штодзённае выкарыстанне](docs/getting-started.md#日常使用) |
-| Паведаміць аб узнаўляльнай праблеме | [GitHub Issues](https://github.com/Lee-xeo/Claude-Cage/issues) |
+| Паведаміць аб узнаўляльнай праблеме | [GitHub Issues](https://github.com/askxiaozhang/Nano-AI-Cage/issues) |
 | Унесці выпраўленне, функцыю або дакументацыю: праверка Issue → запрашэнне суаўтара → PR | [Кіраўніцтва для ўдзельнікаў (кітайская)](.github/CONTRIBUTING.md) |
 
 Праект імкліва развіваецца. Далучайцеся да групы супольнасці, каб падзяліцца водгукамі; вітаюцца супрацоўнікі супольнасці.
@@ -148,10 +148,10 @@ Cage з'яўляецца незалежным грамадскім праект�
 - [claude-post-ban-cleanup](https://github.com/l2461090/claude-post-ban-cleanup): прыклад дакладнай інвентарызацыі, абароны даных і ачысткі кэша з аднаўленнем; незалежная рэалізацыя ў Cage.
 
 
-<a href="https://www.star-history.com/?repos=Lee-xeo%2FClaude-Cage&amp;type=date">
+<a href="https://www.star-history.com/?repos=askxiaozhang%2FNano-AI-Cage&amp;type=date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date&amp;theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date" />
-    <img alt="Claude Cage GitHub Star History" src="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date" width="800" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date&amp;theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date" />
+    <img alt="Nano-AI-CAGE GitHub Star History" src="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date" width="800" />
   </picture>
 </a>

@@ -1,12 +1,12 @@
 <div align="center">
 
-<h1>Claude Cage</h1>
+<h1>Nano-AI-CAGE</h1>
 
 **Ku hay Miss Claude qafis, si aan si wanaagsan u ilaalin karno waqtigeena wada jirka ah**
 
-<img src="assets/claude-cage-character.png" alt="Claude Cage" width="320" />
+<img src="assets/claude-cage-character.png" alt="Nano-AI-CAGE" width="320" />
 
-[![Release](https://img.shields.io/github/v/release/Lee-xeo/Claude-Cage?include_prereleases)](https://github.com/Lee-xeo/Claude-Cage/releases) [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/askxiaozhang/Nano-AI-Cage?include_prereleases)](https://github.com/askxiaozhang/Nano-AI-Cage/releases) [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 <a href="https://trendshift.io/repositories/339051#achievements"><img src="https://trendshift.io/api/badge/trendshift/repositories/339051/daily?language=Go" alt="Trendshift — Go Repository of the Day" width="250" height="55" /></a> <a href="https://trendshift.io/repositories/339051#achievements"><img src="https://trendshift.io/api/badge/trendshift/repositories/339051/weekly?language=Go" alt="Trendshift — Go Repository of the Week" width="250" height="55" /></a>
 
@@ -20,9 +20,9 @@
 
 ## Waan ka daalnay Anthropic
 
-Isticmaalayaasha caadiga ah ee raba inay la hadlaan Claude, waanu ka daalnay habaynta tusaalooyinka VPS, sawirka faraha browserka, iyo hubinta deegaanka, anagoo ka walwalsanayn xayiraadaha akoonnada iyo khasaaraha maaliyadeed. Waxaan soo bandhigaynaa **Claude Cage** -**codsi desktop diyaar u ah in la isticmaalo: habayso wakiilkaaga shabakad oo maamul deegaankaaga go'doonsan, aagga wakhtiga, luqadda, iyo hubinta deegaanka ee hal meel ah.**
+Isticmaalayaasha caadiga ah ee raba inay la hadlaan Claude, waanu ka daalnay habaynta tusaalooyinka VPS, sawirka faraha browserka, iyo hubinta deegaanka, anagoo ka walwalsanayn xayiraadaha akoonnada iyo khasaaraha maaliyadeed. Waxaan soo bandhigaynaa **Nano-AI-CAGE** -**codsi desktop diyaar u ah in la isticmaalo: habayso wakiilkaaga shabakad oo maamul deegaankaaga go'doonsan, aagga wakhtiga, luqadda, iyo hubinta deegaanka ee hal meel ah.**
 
-Claude Cage wuxuu terminalka, biraawsarka, tafatiraha iyo Claude Desktop-ka rasmiga ah ku mideeyaa hal goob shaqo oo go’doonsan. macOS, Windows iyo Linux dhammaantood waxay isticmaalaan isla deegaan yar oo Debian 13 ah. Wadaag mashaariicda aad doorato, shabakadda si gaar ah u maamul, serverkaaga SSH ku xir, hawlahana telefoonka ka sii wad. Astaamaha ugu waaweyn:
+Nano-AI-CAGE wuxuu terminalka, biraawsarka, tafatiraha iyo Claude Desktop-ka rasmiga ah ku mideeyaa hal goob shaqo oo go’doonsan. macOS, Windows iyo Linux dhammaantood waxay isticmaalaan isla deegaan yar oo Debian 13 ah. Wadaag mashaariicda aad doorato, shabakadda si gaar ah u maamul, serverkaaga SSH ku xir, hawlahana telefoonka ka sii wad. Astaamaha ugu waaweyn:
 
 - Dejinta shabakada oo ka go'an martigeliyaha; Dariiqyada qafisku waxay maraa dhammaan taraafikada shabakada gudaha deegaankeeda iyada oo u sii marinaysa wakiilkeeda shabakadeeda
 - Dejinta faraha browserka ee ka go'doon martigeliyaha, oo ay ku jiraan aaga wakhtiga iyo luqadda, oo leh si toos ah ula mid ah goobta wakiilka shabakada
@@ -59,7 +59,7 @@ Claude Cage wuxuu terminalka, biraawsarka, tafatiraha iyo Claude Desktop-ka rasm
 U dir codsigan wakiilkaaga AI (codex, dsh, workbuddy - malaha maaha Claude Code 😁):
 
 ```markdown
-Soo qaado koodhkii ugu dambeeyay ee https://github.com/Lee-xeo/Claude-Cage, dhis, xirmo ka samee oo rakib. U habee proxy-ga Cage inuu isticmaalo node-ka xx ee Clash-kayga maxalliga ah oo uu ka baxo IP-gayga xx. La soco hawsha oo dhan, si toos ah u sax dhibaatooyinka, haddii loo baahdana issue u gudbi mashruuca si loo wanaajiyo iswaafajinta.
+Soo qaado koodhkii ugu dambeeyay ee https://github.com/askxiaozhang/Nano-AI-Cage, dhis, xirmo ka samee oo rakib. U habee proxy-ga Cage inuu isticmaalo node-ka xx ee Clash-kayga maxalliga ah oo uu ka baxo IP-gayga xx. La soco hawsha oo dhan, si toos ah u sax dhibaatooyinka, haddii loo baahdana issue u gudbi mashruuca si loo wanaajiyo iswaafajinta.
 ```
 
 Waxa kaliya ee aad u baahan tahay waa barta ugu dambeysa ee wakiil shabakad la isku halayn karo. Mashruucani ma dalacsiinayo bixiye wakiil; Waxaad heli kartaa bixiye laftaada, tusaale ahaan adoo raadiya shabakada qaladka madow.
@@ -74,7 +74,7 @@ Cage wuxuu taageeraa macOS, Windows iyo Linux: Apple Silicon oo leh macOS 14+, W
 
 Rakibuhu wuxuu ka kooban yahay goobta shaqada iyo matoorka proxy-ga. Uma baahnid inaad horay u rakibto Go, Node.js, Docker ama Clash. Markaad deegaanka abuurayso, dooro goobta kaydinta; Cage wuxuu soo dejiyaa sawirka Debian 13 iyo qalabka horumarinta. Cage ma bixiyo adeeg proxy ama akoon Claude.
 
-Koodhka isha iyo rakibayaashu waa dadweyne. Qoraallada noocyada iyo checksum-yada ka eeg [Releases](https://github.com/Lee-xeo/Claude-Cage/releases).
+Koodhka isha iyo rakibayaashu waa dadweyne. Qoraallada noocyada iyo checksum-yada ka eeg [Releases](https://github.com/askxiaozhang/Nano-AI-Cage/releases).
 
 Awooduhu waxay ku xiran yihiin build-ka la isticmaalayo; awoodaha iyo xadka tijaabada rakibaha dadweynaha waxay ku qoran yihiin qoraalka sii-deynta.
 
@@ -113,7 +113,7 @@ Si aad u hesho tusmada buuxda, eeg [Tusmada dhokumentiyada](docs/README.md).
 | Ku rakib, habee wakiil shabakad, oo fur mashruucaaga ugu horreeya | [Bilaabidda](docs/getting-started.md) |
 | Xallinta soo dejinta, bilaabista, isku xidhka, iyo soo gelista | [FAQ iyo soo kabashada](docs/troubleshooting.md) |
 | Baro kontaroolada kiiboodhka, muuqaalka, adkaysiga xogta, iyo habdhaqanka bixista | [Isticmaalka maalinlaha ah](docs/getting-started.md#日常使用) |
-| Ka warbixi arrin dib loo soo saari karo | [GitHub Issues](https://github.com/Lee-xeo/Claude-Cage/issues) |
+| Ka warbixi arrin dib loo soo saari karo | [GitHub Issues](https://github.com/askxiaozhang/Nano-AI-Cage/issues) |
 | Ku biiri sixid, hawl cusub ama dukumenti: dib-u-eegista Issue → martiqaadka wada-shaqeeyaha → PR | [Hagaha wax-ku-biirinta (Shiine)](.github/CONTRIBUTING.md) |
 
 Mashruucu si xawli ah ayuu u socdaa. Ku biir kooxda bulshada si aad ula wadaagto jawaab celinta; ilaaliyayaasha bulshada waa la soo dhawaynayaa.
@@ -148,10 +148,10 @@ Waad ku mahadsan tahay mashaariicda soo socota ee kartida aasaasiga ah iyo tixra
 - [claude-post-ban-cleanup](https://github.com/l2461090/claude-post-ban-cleanup): tixraac loogu talagalay tirakoob sax ah, ilaalinta xogta iyo nadiifinta kaydka oo dib loo soo celin karo; Cage ayaa si madax-bannaan u hirgeliyey.
 
 
-<a href="https://www.star-history.com/?repos=Lee-xeo%2FClaude-Cage&amp;type=date">
+<a href="https://www.star-history.com/?repos=askxiaozhang%2FNano-AI-Cage&amp;type=date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date&amp;theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date" />
-    <img alt="Claude Cage GitHub Star History" src="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date" width="800" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date&amp;theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date" />
+    <img alt="Nano-AI-CAGE GitHub Star History" src="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date" width="800" />
   </picture>
 </a>

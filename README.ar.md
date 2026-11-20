@@ -1,12 +1,12 @@
 <div align="center">
 
-<h1>Claude Cage</h1>
+<h1>Nano-AI-CAGE</h1>
 
 **احتفظ بالآنسة كلود في قفص، حتى نتمكن من حماية وقتنا معًا بشكل أفضل**
 
-<img src="assets/claude-cage-character.png" alt="Claude Cage" width="320" />
+<img src="assets/claude-cage-character.png" alt="Nano-AI-CAGE" width="320" />
 
-[![Release](https://img.shields.io/github/v/release/Lee-xeo/Claude-Cage?include_prereleases)](https://github.com/Lee-xeo/Claude-Cage/releases) [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/askxiaozhang/Nano-AI-Cage?include_prereleases)](https://github.com/askxiaozhang/Nano-AI-Cage/releases) [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 <a href="https://trendshift.io/repositories/339051#achievements"><img src="https://trendshift.io/api/badge/trendshift/repositories/339051/daily?language=Go" alt="Trendshift — Go Repository of the Day" width="250" height="55" /></a> <a href="https://trendshift.io/repositories/339051#achievements"><img src="https://trendshift.io/api/badge/trendshift/repositories/339051/weekly?language=Go" alt="Trendshift — Go Repository of the Week" width="250" height="55" /></a>
 
@@ -20,9 +20,9 @@
 
 ## ضقنا ذرعًا بـ Anthropic
 
-باعتبارنا مستخدمين عاديين يريدون فقط التحدث والتعاون مع Claude، فقد سئمنا تكوين مثيلات VPS وملفات تعريف بصمات المتصفح والتحقق من البيئة، بينما نشعر بالقلق بشأن حظر الحسابات والخسائر المالية. نحن نقدم **Claude Cage** — **تطبيق سطح مكتب جاهز للاستخدام: قم بتكوين وكيل الشبكة الخاص بك وإدارة عمليات التحقق من البيئة المعزولة والمنطقة الزمنية واللغة والبيئة في مكان واحد.**
+باعتبارنا مستخدمين عاديين يريدون فقط التحدث والتعاون مع Claude، فقد سئمنا تكوين مثيلات VPS وملفات تعريف بصمات المتصفح والتحقق من البيئة، بينما نشعر بالقلق بشأن حظر الحسابات والخسائر المالية. نحن نقدم **Nano-AI-CAGE** — **تطبيق سطح مكتب جاهز للاستخدام: قم بتكوين وكيل الشبكة الخاص بك وإدارة عمليات التحقق من البيئة المعزولة والمنطقة الزمنية واللغة والبيئة في مكان واحد.**
 
-يجمع Claude Cage الطرفية والمتصفح والمحرر وتطبيق Claude Desktop الرسمي في مساحة عمل واحدة معزولة. على macOS وWindows وLinux يستخدم البيئة نفسها: بيئة Debian 13 صغيرة. شارك المشاريع التي تختارها، وأدر الشبكة بشكل مستقل، واتصل بخادمك عبر SSH، وتابع مهامك من الهاتف. أبرز الميزات:
+يجمع Nano-AI-CAGE الطرفية والمتصفح والمحرر وتطبيق Claude Desktop الرسمي في مساحة عمل واحدة معزولة. على macOS وWindows وLinux يستخدم البيئة نفسها: بيئة Debian 13 صغيرة. شارك المشاريع التي تختارها، وأدر الشبكة بشكل مستقل، واتصل بخادمك عبر SSH، وتابع مهامك من الهاتف. أبرز الميزات:
 
 - إعدادات الشبكة معزولة عن المضيف؛ يقوم Cage بتوجيه كل حركة مرور الشبكة داخل بيئته من خلال وكيل الشبكة الخاص به
 - إعدادات بصمة المتصفح معزولة عن المضيف، بما في ذلك المنطقة الزمنية واللغة، مع مزامنة تلقائية لموقع IP الخاص بوكيل الشبكة
@@ -59,7 +59,7 @@
 أرسل هذا الطلب إلى وكيل الذكاء الاصطناعي لديك (codex، dsh، Workbuddy - ربما ليس Claude Code 😁):
 
 ```markdown
-اسحب أحدث الشفرة المصدرية من https://github.com/Lee-xeo/Claude-Cage وابنِ الحزمة وثبّتها. اضبط وكيل Cage ليستخدم العقدة xx في Clash المحلي ويخرج عبر عنوان IP الخاص بي xx. راقب العملية بالكامل وأصلح المشكلات مباشرةً، وقدّم issue للمشروع عند الحاجة للمساعدة في تحسين التوافق.
+اسحب أحدث الشفرة المصدرية من https://github.com/askxiaozhang/Nano-AI-Cage وابنِ الحزمة وثبّتها. اضبط وكيل Cage ليستخدم العقدة xx في Clash المحلي ويخرج عبر عنوان IP الخاص بي xx. راقب العملية بالكامل وأصلح المشكلات مباشرةً، وقدّم issue للمشروع عند الحاجة للمساعدة في تحسين التوافق.
 ```
 
 كل ما تحتاجه هو نقطة نهاية وكيل شبكة موثوقة. لا يروج هذا المشروع لأي مزود وكيل؛ يمكنك العثور على مقدم الخدمة بنفسك، على سبيل المثال من خلال البحث عن موقع Black Error على الويب.
@@ -74,7 +74,7 @@
 
 تتضمن حزمة التثبيت مساحة العمل ومحرك الوكيل. لا تحتاج إلى تثبيت Go أو Node.js أو Docker أو Clash مسبقًا. عند إنشاء البيئة اختر مكان التخزين، وسينزّل Cage صورة Debian 13 وأدوات التطوير. لا يوفر Cage خدمة وكيل أو حساب Claude.
 
-الكود المصدري وحزم التثبيت متاحة للعامة. تجد ملاحظات الإصدارات وملفات التحقق في [Releases](https://github.com/Lee-xeo/Claude-Cage/releases).
+الكود المصدري وحزم التثبيت متاحة للعامة. تجد ملاحظات الإصدارات وملفات التحقق في [Releases](https://github.com/askxiaozhang/Nano-AI-Cage/releases).
 
 تعتمد الميزات على البناء المستخدم؛ راجع ملاحظات الإصدار لقدرات المثبّت العام ونطاق التحقق منه.
 
@@ -113,7 +113,7 @@
 | قم بتثبيت وكيل الشبكة وتكوينه وافتح مشروعك الأول | [البدء](docs/getting-started.md) |
 | استكشاف أخطاء التنزيلات وبدء التشغيل والاتصال وتسجيل الدخول وإصلاحها | [الأسئلة الشائعة والاسترداد](docs/troubleshooting.md) |
 | تعرف على عناصر التحكم في لوحة المفاتيح والمظهر واستمرارية البيانات وسلوك الخروج | [الاستخدام اليومي](docs/getting-started.md#日常使用) |
-| الإبلاغ عن مشكلة قابلة للتكرار | [GitHub Issues](https://github.com/Lee-xeo/Claude-Cage/issues) |
+| الإبلاغ عن مشكلة قابلة للتكرار | [GitHub Issues](https://github.com/askxiaozhang/Nano-AI-Cage/issues) |
 | المساهمة بإصلاح أو ميزة أو توثيق: مراجعة Issue ← دعوة متعاون ← PR | [دليل المساهمة (بالصينية)](.github/CONTRIBUTING.md) |
 
 المشروع يتطور بسرعة. انضم إلى مجموعة المجتمع لمشاركة التعليقات؛ مشرفو المجتمع مرحب بهم.
@@ -148,10 +148,10 @@ Cage هو مشروع مجتمعي مستقل ولا ينتمي إلى Anthropic.
 - [claude-post-ban-cleanup](https://github.com/l2461090/claude-post-ban-cleanup): مرجع لجرد البيانات وحمايتها وتنظيف الذاكرة المؤقتة مع إمكانية الاستعادة؛ تنفيذ مستقل في Cage.
 
 
-<a href="https://www.star-history.com/?repos=Lee-xeo%2FClaude-Cage&amp;type=date">
+<a href="https://www.star-history.com/?repos=askxiaozhang%2FNano-AI-Cage&amp;type=date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date&amp;theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date" />
-    <img alt="Claude Cage GitHub Star History" src="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date" width="800" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date&amp;theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date" />
+    <img alt="Nano-AI-CAGE GitHub Star History" src="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date" width="800" />
   </picture>
 </a>

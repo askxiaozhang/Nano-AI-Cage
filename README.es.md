@@ -1,12 +1,12 @@
 <div align="center">
 
-<h1>Claude Cage</h1>
+<h1>Nano-AI-CAGE</h1>
 
 **Mantenga a la señorita Claude en una jaula para que podamos proteger mejor nuestro tiempo juntos.**
 
-<img src="assets/claude-cage-character.png" alt="Claude Cage" width="320" />
+<img src="assets/claude-cage-character.png" alt="Nano-AI-CAGE" width="320" />
 
-[![Release](https://img.shields.io/github/v/release/Lee-xeo/Claude-Cage?include_prereleases)](https://github.com/Lee-xeo/Claude-Cage/releases) [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/askxiaozhang/Nano-AI-Cage?include_prereleases)](https://github.com/askxiaozhang/Nano-AI-Cage/releases) [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 <a href="https://trendshift.io/repositories/339051#achievements"><img src="https://trendshift.io/api/badge/trendshift/repositories/339051/daily?language=Go" alt="Trendshift — Go Repository of the Day" width="250" height="55" /></a> <a href="https://trendshift.io/repositories/339051#achievements"><img src="https://trendshift.io/api/badge/trendshift/repositories/339051/weekly?language=Go" alt="Trendshift — Go Repository of the Week" width="250" height="55" /></a>
 
@@ -20,9 +20,9 @@
 
 ## Hartazgo con Anthropic
 
-Como usuarios normales que sólo queremos hablar y colaborar con Claude, estamos cansados de configurar instancias de VPS, perfiles de huellas dactilares del navegador y comprobaciones del entorno, mientras nos preocupamos por las prohibiciones de cuentas y las pérdidas financieras. presentamos **Claude Cage** — **una aplicación de escritorio lista para usar: configure su propio proxy de red y administre su entorno aislado, zona horaria, idioma y comprobaciones de entorno en un solo lugar.**
+Como usuarios normales que sólo queremos hablar y colaborar con Claude, estamos cansados de configurar instancias de VPS, perfiles de huellas dactilares del navegador y comprobaciones del entorno, mientras nos preocupamos por las prohibiciones de cuentas y las pérdidas financieras. presentamos **Nano-AI-CAGE** — **una aplicación de escritorio lista para usar: configure su propio proxy de red y administre su entorno aislado, zona horaria, idioma y comprobaciones de entorno en un solo lugar.**
 
-Claude Cage reúne terminal, navegador, editor y Claude Desktop oficial en un mismo espacio de trabajo aislado. En macOS, Windows y Linux se usa el mismo entorno Debian 13 ligero. Comparte solo los proyectos que elijas, gestiona la red por separado, conecta tu servidor por SSH y continúa las tareas desde el teléfono. Sus funciones principales:
+Nano-AI-CAGE reúne terminal, navegador, editor y Claude Desktop oficial en un mismo espacio de trabajo aislado. En macOS, Windows y Linux se usa el mismo entorno Debian 13 ligero. Comparte solo los proyectos que elijas, gestiona la red por separado, conecta tu servidor por SSH y continúa las tareas desde el teléfono. Sus funciones principales:
 
 - Configuraciones de red aisladas del host; Cage enruta todo el tráfico de red dentro de su entorno a través de su propio proxy de red.
 - Configuración de huellas digitales del navegador aislada del host, incluida la zona horaria y el idioma, con sincronización automática con la ubicación IP del proxy de red
@@ -59,7 +59,7 @@ Claude Cage reúne terminal, navegador, editor y Claude Desktop oficial en un mi
 Envíe esta solicitud a su agente de IA (codex, dsh, workbuddy; probablemente no Claude Code 😁):
 
 ```markdown
-Obtén el código fuente más reciente de https://github.com/Lee-xeo/Claude-Cage, compílalo, empaquétalo e instálalo. Configura el proxy de Cage para usar el nodo xx de mi Clash local y salir por mi IP xx. Supervisa todo el proceso, corrige directamente los problemas y, si es necesario, abre una issue en el proyecto para ayudar a mejorar la compatibilidad.
+Obtén el código fuente más reciente de https://github.com/askxiaozhang/Nano-AI-Cage, compílalo, empaquétalo e instálalo. Configura el proxy de Cage para usar el nodo xx de mi Clash local y salir por mi IP xx. Supervisa todo el proceso, corrige directamente los problemas y, si es necesario, abre una issue en el proyecto para ayudar a mejorar la compatibilidad.
 ```
 
 Todo lo que necesita es un punto final de proxy de red confiable. Este proyecto no promueve ningún proveedor de proxy; Puede encontrar un proveedor usted mismo, por ejemplo buscando en el sitio web de Black Error.
@@ -74,7 +74,7 @@ Cage admite macOS, Windows y Linux: Apple Silicon con macOS 14+, Windows 10 22H2
 
 El instalador incluye el espacio de trabajo y el motor del proxy. No necesitas instalar antes Go, Node.js, Docker ni Clash. Al crear el entorno, elige su ubicación; Cage descarga la imagen de Debian 13 y las herramientas de desarrollo. Cage no proporciona servicio de proxy ni cuentas Claude.
 
-El código fuente y los instaladores son públicos. Las notas y sumas de comprobación están en [Releases](https://github.com/Lee-xeo/Claude-Cage/releases).
+El código fuente y los instaladores son públicos. Las notas y sumas de comprobación están en [Releases](https://github.com/askxiaozhang/Nano-AI-Cage/releases).
 
 Las funciones dependen de la compilación; las capacidades y verificaciones del instalador público figuran en las notas de la versión.
 
@@ -113,7 +113,7 @@ Para consultar el índice completo, consulte [Índice de documentación](docs/RE
 | Instale, configure un proxy de red y abra su primer proyecto | [Empezando](docs/getting-started.md) |
 | Solucionar problemas de descargas, inicio, conectividad e inicio de sesión | [Preguntas frecuentes y recuperación](docs/troubleshooting.md) |
 | Aprenda los controles del teclado, la apariencia, la persistencia de datos y el comportamiento de salida | [Uso diario](docs/getting-started.md#日常使用) |
-| Informar un problema reproducible | [GitHub Issues](https://github.com/Lee-xeo/Claude-Cage/issues) |
+| Informar un problema reproducible | [GitHub Issues](https://github.com/askxiaozhang/Nano-AI-Cage/issues) |
 | Contribuir correcciones, funciones o documentación: revisión del Issue → invitación como colaborador → PR | [Guía de contribución (chino)](.github/CONTRIBUTING.md) |
 
 El proyecto está evolucionando rápidamente. Únase al grupo comunitario para compartir comentarios; Los mantenedores de la comunidad son bienvenidos.
@@ -148,10 +148,10 @@ Gracias a los siguientes proyectos por capacidades fundamentales y referencias d
 - [claude-post-ban-cleanup](https://github.com/l2461090/claude-post-ban-cleanup): referencia para el inventario preciso, la protección de datos y la limpieza recuperable de caché; implementación independiente en Cage.
 
 
-<a href="https://www.star-history.com/?repos=Lee-xeo%2FClaude-Cage&amp;type=date">
+<a href="https://www.star-history.com/?repos=askxiaozhang%2FNano-AI-Cage&amp;type=date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date&amp;theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date" />
-    <img alt="Claude Cage GitHub Star History" src="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date" width="800" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date&amp;theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date" />
+    <img alt="Nano-AI-CAGE GitHub Star History" src="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date" width="800" />
   </picture>
 </a>

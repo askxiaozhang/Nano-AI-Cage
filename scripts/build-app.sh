@@ -3,12 +3,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 if [[ "$(uname -s)" != Darwin ]]; then echo 'Cage.app must be built on macOS.' >&2; exit 1; fi
 case "${1:-}" in ''|--install|--intel-macos-test) ;; *) echo 'Usage: scripts/build-app.sh [--install|--intel-macos-test]' >&2; exit 2 ;; esac
-bundle_id=io.github.lee-xeo.claude-cage
-app_name=Cage
+bundle_id=io.github.askxiaozhang.nano-ai-cage
+app_name=Nano-AI-CAGE
 if [[ "${1:-}" == --intel-macos-test ]]; then
   [[ $(uname -m) == x86_64 ]] || { echo 'Intel test packages require an Intel Mac.' >&2; exit 2; }
   bundle_id+=.intel-macos-test
-  app_name='Cage Intel'
+  app_name='Nano-AI-CAGE Intel'
 fi
 installed_app="$HOME/Applications/$app_name.app"
 app_destination="${CAGE_BUILD_OUTPUT:-$PWD/_output/$app_name.app}"
@@ -43,14 +43,16 @@ export CAGE_SIGNING_IDENTITY="$identity"
 export MACOSX_DEPLOYMENT_TARGET=14.0
 export CGO_CFLAGS="${CGO_CFLAGS:-} -mmacosx-version-min=14.0"
 export CGO_LDFLAGS="${CGO_LDFLAGS:-} -mmacosx-version-min=14.0"
-command -v uv >/dev/null || { echo 'Building the workbench requires uv: https://docs.astral.sh/uv/getting-started/installation/' >&2; exit 1; }
+if ! command -v uv >/dev/null && ! command -v python3 >/dev/null; then
+  echo 'Building the workbench requires uv or python3.' >&2; exit 1
+fi
 bash scripts/fetch-proxy-core.sh
 make cage VERSION="$version"
 _output/bin/cage verify-web-assets
 build_stage="$(mktemp -d "$PWD/_output/app-build.XXXXXX")"
 install_stage=''
 trap 'rm -rf "$build_stage"; if [[ -n "$install_stage" ]]; then rm -rf "$install_stage"; fi' EXIT
-bundle="$build_stage/Cage.app"
+bundle="$build_stage/$app_name.app"
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
 xcrun swiftc -O -target "$(uname -m)-apple-macosx14.0" -parse-as-library -framework Cocoa -framework WebKit -framework Security -framework LocalAuthentication desktop/Cage.swift desktop/InterfaceLanguage.swift desktop/MacKeyboard.swift desktop/NativeInput.swift desktop/Updates.swift desktop/AccountDevice.swift -o "$bundle/Contents/MacOS/Cage"
 xcrun swiftc -O -target "$(uname -m)-apple-macosx14.0" -parse-as-library -framework Cocoa -framework Security desktop/Updates.swift desktop/UpdateInstaller.swift -o "$bundle/Contents/Resources/CageUpdateInstaller"

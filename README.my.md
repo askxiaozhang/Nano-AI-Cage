@@ -1,12 +1,12 @@
 <div align="center">
 
-<h1>Claude Cage</h1>
+<h1>Nano-AI-CAGE</h1>
 
 **Miss Claude ကို လှောင်အိမ်ထဲတွင် ထားပါ၊ ထို့ကြောင့် ကျွန်ုပ်တို့၏အချိန်များကို အတူတကွ ပိုမိုကောင်းမွန်စွာ ကာကွယ်နိုင်မည်ဖြစ်သည်။**
 
-<img src="assets/claude-cage-character.png" alt="Claude Cage" width="320" />
+<img src="assets/claude-cage-character.png" alt="Nano-AI-CAGE" width="320" />
 
-[![Release](https://img.shields.io/github/v/release/Lee-xeo/Claude-Cage?include_prereleases)](https://github.com/Lee-xeo/Claude-Cage/releases) [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/askxiaozhang/Nano-AI-Cage?include_prereleases)](https://github.com/askxiaozhang/Nano-AI-Cage/releases) [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 <a href="https://trendshift.io/repositories/339051#achievements"><img src="https://trendshift.io/api/badge/trendshift/repositories/339051/daily?language=Go" alt="Trendshift — Go Repository of the Day" width="250" height="55" /></a> <a href="https://trendshift.io/repositories/339051#achievements"><img src="https://trendshift.io/api/badge/trendshift/repositories/339051/weekly?language=Go" alt="Trendshift — Go Repository of the Week" width="250" height="55" /></a>
 
@@ -20,9 +20,9 @@
 
 ## Anthropic ကို စိတ်ကုန်နေပြီ
 
-Claude နှင့် စကားပြောပြီး ပူးပေါင်းလိုသည့် သာမန်အသုံးပြုသူများအနေဖြင့် VPS ဖြစ်ရပ်များ၊ ဘရောက်ဆာလက်ဗွေရာပရိုဖိုင်များနှင့် ပတ်ဝန်းကျင်စစ်ဆေးမှုများကို ပြင်ဆင်ရာတွင် ငြီးငွေ့နေပြီး အကောင့်ပိတ်ပင်မှုနှင့် ငွေကြေးဆုံးရှုံးမှုများအတွက် စိုးရိမ်နေပါသည်။ ကျွန်တော်တင်ပြတယ်။ **Claude Cage** — **အဆင်သင့်အသုံးပြုနိုင်သော ဒက်စတော့အပလီကေးရှင်း- သင့်ကိုယ်ပိုင်ကွန်ရက်ပရောက်စီကို စီစဉ်သတ်မှတ်ပြီး သင်၏ သီးခြားပတ်ဝန်းကျင်၊ အချိန်ဇုန်၊ ဘာသာစကားနှင့် ပတ်ဝန်းကျင်စစ်ဆေးမှုများကို တစ်နေရာတည်းတွင် စီမံခန့်ခွဲပါ။**
+Claude နှင့် စကားပြောပြီး ပူးပေါင်းလိုသည့် သာမန်အသုံးပြုသူများအနေဖြင့် VPS ဖြစ်ရပ်များ၊ ဘရောက်ဆာလက်ဗွေရာပရိုဖိုင်များနှင့် ပတ်ဝန်းကျင်စစ်ဆေးမှုများကို ပြင်ဆင်ရာတွင် ငြီးငွေ့နေပြီး အကောင့်ပိတ်ပင်မှုနှင့် ငွေကြေးဆုံးရှုံးမှုများအတွက် စိုးရိမ်နေပါသည်။ ကျွန်တော်တင်ပြတယ်။ **Nano-AI-CAGE** — **အဆင်သင့်အသုံးပြုနိုင်သော ဒက်စတော့အပလီကေးရှင်း- သင့်ကိုယ်ပိုင်ကွန်ရက်ပရောက်စီကို စီစဉ်သတ်မှတ်ပြီး သင်၏ သီးခြားပတ်ဝန်းကျင်၊ အချိန်ဇုန်၊ ဘာသာစကားနှင့် ပတ်ဝန်းကျင်စစ်ဆေးမှုများကို တစ်နေရာတည်းတွင် စီမံခန့်ခွဲပါ။**
 
-Claude Cage သည် terminal၊ browser၊ editor နှင့် တရားဝင် Claude Desktop ကို သီးခြားအလုပ်ခွင်တစ်ခုတွင် စုစည်းပေးသည်။ macOS၊ Windows နှင့် Linux အားလုံးတွင် တူညီသော Debian 13 ပတ်ဝန်းကျင်ငယ်တစ်ခုကို အသုံးပြုသည်။ ရွေးချယ်ထားသော project များကိုသာ မျှဝေပြီး ကွန်ရက်ကို သီးခြားစီမံပါ။ ကိုယ်ပိုင် server ကို SSH ဖြင့် ချိတ်ဆက်နိုင်ပြီး ဖုန်းမှလည်း အလုပ်ဆက်လုပ်နိုင်သည်။ အဓိကလုပ်ဆောင်ချက်များမှာ—
+Nano-AI-CAGE သည် terminal၊ browser၊ editor နှင့် တရားဝင် Claude Desktop ကို သီးခြားအလုပ်ခွင်တစ်ခုတွင် စုစည်းပေးသည်။ macOS၊ Windows နှင့် Linux အားလုံးတွင် တူညီသော Debian 13 ပတ်ဝန်းကျင်ငယ်တစ်ခုကို အသုံးပြုသည်။ ရွေးချယ်ထားသော project များကိုသာ မျှဝေပြီး ကွန်ရက်ကို သီးခြားစီမံပါ။ ကိုယ်ပိုင် server ကို SSH ဖြင့် ချိတ်ဆက်နိုင်ပြီး ဖုန်းမှလည်း အလုပ်ဆက်လုပ်နိုင်သည်။ အဓိကလုပ်ဆောင်ချက်များမှာ—
 
 - ကွန်ရက်ဆက်တင်များကို လက်ခံဆောင်ရွက်ပေးသူမှ သီးခြားခွဲထားသည်။ Cage သည် ၎င်း၏ပတ်ဝန်းကျင်အတွင်းရှိ ကွန်ရက်အသွားအလာအားလုံးကို ၎င်း၏ကိုယ်ပိုင်ကွန်ရက် proxy မှတစ်ဆင့် လမ်းကြောင်းပေးသည်။
 - အချိန်ဇုန်နှင့် ဘာသာစကားအပါအဝင် ကွန်ရက်ပရောက်စီ၏ IP တည်နေရာသို့ အလိုအလျောက်ထပ်တူပြုခြင်းဖြင့် ဘရောက်ဆာလက်ဗွေဆက်တင်များကို ခွဲထုတ်ထားသည်။
@@ -59,7 +59,7 @@ Claude Cage သည် terminal၊ browser၊ editor နှင့် တရား
 ဤတောင်းဆိုချက်ကို သင်၏ AI အေးဂျင့် (codex၊ dsh၊ workbuddy — Claude Code ဖြစ်နိုင်သည် 😁) ။
 
 ```markdown
-https://github.com/Lee-xeo/Claude-Cage ၏ နောက်ဆုံး source code ကို ရယူပြီး build လုပ်၊ package ပြုလုပ်ကာ install လုပ်ပေးပါ။ Cage proxy ကို ကျွန်ုပ်၏ local Clash ရှိ xx node မှတစ်ဆင့် ကျွန်ုပ်၏ xx IP ဖြင့် ထွက်နိုင်အောင် သတ်မှတ်ပေးပါ။ လုပ်ငန်းစဉ်တစ်လျှောက် စောင့်ကြည့်ပြီး ပြဿနာများကို တိုက်ရိုက်ပြင်ဆင်ပါ။ လိုအပ်ပါက compatibility ပိုကောင်းစေရန် project တွင် issue တင်ပေးပါ။
+https://github.com/askxiaozhang/Nano-AI-Cage ၏ နောက်ဆုံး source code ကို ရယူပြီး build လုပ်၊ package ပြုလုပ်ကာ install လုပ်ပေးပါ။ Cage proxy ကို ကျွန်ုပ်၏ local Clash ရှိ xx node မှတစ်ဆင့် ကျွန်ုပ်၏ xx IP ဖြင့် ထွက်နိုင်အောင် သတ်မှတ်ပေးပါ။ လုပ်ငန်းစဉ်တစ်လျှောက် စောင့်ကြည့်ပြီး ပြဿနာများကို တိုက်ရိုက်ပြင်ဆင်ပါ။ လိုအပ်ပါက compatibility ပိုကောင်းစေရန် project တွင် issue တင်ပေးပါ။
 ```
 
 သင်လိုအပ်သည်မှာ ယုံကြည်စိတ်ချရသော ကွန်ရက် proxy အဆုံးမှတ်တစ်ခုဖြစ်သည်။ ဤပရောဂျက်သည် မည်သည့်ပရောက်စီဝန်ဆောင်မှုပေးသူကိုမျှ မြှင့်တင်မည်မဟုတ်ပါ။ ဥပမာအားဖြင့် Black Error ဝဘ်ဆိုက်ကို ရှာဖွေခြင်းဖြင့် ပံ့ပိုးပေးသူကို သင်ကိုယ်တိုင် ရှာဖွေနိုင်သည်။
@@ -74,7 +74,7 @@ Cage သည် macOS၊ Windows နှင့် Linux ကို ပံ့ပိ�
 
 တပ်ဆင်ဖိုင်တွင် အလုပ်ခွင်နှင့် proxy engine ပါဝင်သည်။ Go၊ Node.js၊ Docker သို့မဟုတ် Clash ကို ကြိုတင်တပ်ဆင်ရန် မလိုပါ။ ပတ်ဝန်းကျင်ဖန်တီးချိန်တွင် သိမ်းဆည်းရာနေရာကို ရွေးပါ။ Cage သည် Debian 13 image နှင့် ဖွံ့ဖြိုးရေးကိရိယာများကို ဒေါင်းလုဒ်လုပ်သည်။ Cage သည် proxy ဝန်ဆောင်မှု သို့မဟုတ် Claude အကောင့် မပေးပါ။
 
-မူရင်းကုဒ်နှင့် တပ်ဆင်ဖိုင်များကို အများပြည်သူရယူနိုင်သည်။ ဗားရှင်းမှတ်စုနှင့် checksum များကို [Releases](https://github.com/Lee-xeo/Claude-Cage/releases) တွင် ကြည့်ပါ။
+မူရင်းကုဒ်နှင့် တပ်ဆင်ဖိုင်များကို အများပြည်သူရယူနိုင်သည်။ ဗားရှင်းမှတ်စုနှင့် checksum များကို [Releases](https://github.com/askxiaozhang/Nano-AI-Cage/releases) တွင် ကြည့်ပါ။
 
 လုပ်ဆောင်ချက်များသည် အသုံးပြုသော build ပေါ်မူတည်သည်။ အများပြည်သူ installer ၏ စွမ်းရည်နှင့် စမ်းသပ်မှုနယ်ပယ်ကို release မှတ်စုတွင် ကြည့်ပါ။
 
@@ -113,7 +113,7 @@ macOS နှင့် လက်မှတ်ထိုးထားသော Window
 | ထည့်သွင်းပါ၊ ကွန်ရက်ပရောက်စီကို စီစဉ်သတ်မှတ်ပါ၊ သင်၏ပထမဆုံးပရောဂျက်ကိုဖွင့်ပါ။ | [စတင်လုပ်ဆောင်ခြင်း။](docs/getting-started.md) |
 | ဒေါင်းလုဒ်များ၊ စတင်ခြင်း၊ ချိတ်ဆက်မှုနှင့် လက်မှတ်ထိုးဝင်ခြင်းတို့ကို ပြဿနာဖြေရှင်းပါ။ | [FAQ နှင့် ပြန်လည်ရယူခြင်း။](docs/troubleshooting.md) |
 | ကီးဘုတ်ထိန်းချုပ်မှုများ၊ အသွင်အပြင်၊ ဒေတာ ခိုင်မြဲမှုနှင့် ထွက်ပေါက်အပြုအမူတို့ကို လေ့လာပါ။ | [နေ့စဉ်အသုံးပြုခြင်း။](docs/getting-started.md#日常使用) |
-| မျိုးပွားနိုင်သော ပြဿနာကို သတင်းပို့ပါ။ | [GitHub Issues](https://github.com/Lee-xeo/Claude-Cage/issues) |
+| မျိုးပွားနိုင်သော ပြဿနာကို သတင်းပို့ပါ။ | [GitHub Issues](https://github.com/askxiaozhang/Nano-AI-Cage/issues) |
 | ပြင်ဆင်ချက်၊ လုပ်ဆောင်ချက် သို့မဟုတ် စာရွက်စာတမ်း ပံ့ပိုးရန်: Issue စစ်ဆေးမှု → ပူးပေါင်းသူဖိတ်ခေါ်မှု → PR | [ပံ့ပိုးမှုလမ်းညွှန် (တရုတ်ဘာသာ)](.github/CONTRIBUTING.md) |
 
 ပရောဂျက်က အရှိန်အဟုန်နဲ့ တိုးတက်နေတယ်။ တုံ့ပြန်ချက်မျှဝေရန် ကွန်မြူနတီအဖွဲ့သို့ ဝင်ရောက်ပါ။ ရပ်ရွာထိန်းသိမ်းသူ များကို ကြိုဆိုပါတယ်။
@@ -148,10 +148,10 @@ Cage သည် လွတ်လပ်သောအသိုင်းအဝို�
 - [claude-post-ban-cleanup](https://github.com/l2461090/claude-post-ban-cleanup): တိကျသောစာရင်းစစ်ဆေးမှု၊ အသုံးပြုသူဒေတာကာကွယ်မှုနှင့် ပြန်လည်ရယူနိုင်သော cache ရှင်းလင်းမှုလုပ်ငန်းစဉ်ကို ကိုးကားထားပြီး Cage တွင် သီးခြားအကောင်အထည်ဖော်ထားသည်။
 
 
-<a href="https://www.star-history.com/?repos=Lee-xeo%2FClaude-Cage&amp;type=date">
+<a href="https://www.star-history.com/?repos=askxiaozhang%2FNano-AI-Cage&amp;type=date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date&amp;theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date" />
-    <img alt="Claude Cage GitHub Star History" src="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date" width="800" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date&amp;theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date" />
+    <img alt="Nano-AI-CAGE GitHub Star History" src="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date" width="800" />
   </picture>
 </a>

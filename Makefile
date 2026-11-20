@@ -59,7 +59,21 @@ cage-ui:
 	npm --prefix ui ci --no-audit --no-fund
 	npm run --prefix ui build
 
-.PHONY: cage cage-ui cage-windows package-windows cage-linux package-linux check-linux
+dmg:
+	bash scripts/build-app.sh
+	@set -eu; \
+	version=$$(tr -d '\n\r' < VERSION); \
+	arch=$$(uname -m); \
+	dmg="$$PWD/_output/Nano-AI-CAGE-$$version-macos-$$arch.dmg"; \
+	stage=$$(mktemp -d "$$PWD/_output/dmg-stage.XXXXXX"); \
+	trap 'rm -rf "$$stage"' EXIT; \
+	ditto "$$PWD/_output/Nano-AI-CAGE.app" "$$stage/Nano-AI-CAGE.app"; \
+	ln -s /Applications "$$stage/Applications"; \
+	rm -f "$$dmg"; \
+	hdiutil create -volname "Nano-AI-CAGE" -srcfolder "$$stage" -ov -format UDZO "$$dmg"; \
+	printf 'Built DMG: %s\n' "$$dmg"
+
+.PHONY: cage cage-ui dmg cage-windows package-windows cage-linux package-linux check-linux
 cage-linux:
 	bash scripts/build-linux.sh
 

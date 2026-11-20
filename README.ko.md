@@ -1,12 +1,12 @@
 <div align="center">
 
-<h1>Claude Cage</h1>
+<h1>Nano-AI-CAGE</h1>
 
 **클로드 양을 우리에 가둬서 우리가 함께하는 시간을 더 잘 보호할 수 있도록**
 
-<img src="assets/claude-cage-character.png" alt="Claude Cage" width="320" />
+<img src="assets/claude-cage-character.png" alt="Nano-AI-CAGE" width="320" />
 
-[![Release](https://img.shields.io/github/v/release/Lee-xeo/Claude-Cage?include_prereleases)](https://github.com/Lee-xeo/Claude-Cage/releases) [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/askxiaozhang/Nano-AI-Cage?include_prereleases)](https://github.com/askxiaozhang/Nano-AI-Cage/releases) [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 <a href="https://trendshift.io/repositories/339051#achievements"><img src="https://trendshift.io/api/badge/trendshift/repositories/339051/daily?language=Go" alt="Trendshift — Go Repository of the Day" width="250" height="55" /></a> <a href="https://trendshift.io/repositories/339051#achievements"><img src="https://trendshift.io/api/badge/trendshift/repositories/339051/weekly?language=Go" alt="Trendshift — Go Repository of the Week" width="250" height="55" /></a>
 
@@ -20,9 +20,9 @@
 
 ## Anthropic에 지쳤습니다
 
-클로드와 대화하고 협업하고 싶은 일반 사용자로서 VPS 인스턴스, 브라우저 지문 프로필, 환경 확인을 구성하는 데 지쳤으며 계정 금지 및 금전적 손실을 걱정합니다. 우리는 선물한다 **Claude Cage** — **즉시 사용 가능한 데스크탑 애플리케이션: 자체 네트워크 프록시를 구성하고 격리된 환경, 시간대, 언어 및 환경 확인을 한 곳에서 관리합니다.**
+클로드와 대화하고 협업하고 싶은 일반 사용자로서 VPS 인스턴스, 브라우저 지문 프로필, 환경 확인을 구성하는 데 지쳤으며 계정 금지 및 금전적 손실을 걱정합니다. 우리는 선물한다 **Nano-AI-CAGE** — **즉시 사용 가능한 데스크탑 애플리케이션: 자체 네트워크 프록시를 구성하고 격리된 환경, 시간대, 언어 및 환경 확인을 한 곳에서 관리합니다.**
 
-Claude Cage는 터미널, 브라우저, 편집기와 공식 Claude Desktop을 하나의 격리된 작업 공간에 모읍니다. macOS, Windows, Linux 어디에서나 동일한 소형 Debian 13 환경을 사용합니다. 필요한 프로젝트만 공유하고 네트워크를 따로 관리하며, SSH로 서버에 연결하거나 휴대폰에서 작업을 이어갈 수 있습니다. 주요 기능:
+Nano-AI-CAGE는 터미널, 브라우저, 편집기와 공식 Claude Desktop을 하나의 격리된 작업 공간에 모읍니다. macOS, Windows, Linux 어디에서나 동일한 소형 Debian 13 환경을 사용합니다. 필요한 프로젝트만 공유하고 네트워크를 따로 관리하며, SSH로 서버에 연결하거나 휴대폰에서 작업을 이어갈 수 있습니다. 주요 기능:
 
 - 호스트와 격리된 네트워크 설정 Cage는 자체 네트워크 프록시를 통해 환경 내부의 모든 네트워크 트래픽을 라우팅합니다.
 - 네트워크 프록시의 IP 위치에 대한 자동 동기화를 통해 시간대 및 언어를 포함하여 호스트에서 격리된 브라우저 지문 설정
@@ -59,7 +59,7 @@ Claude Cage는 터미널, 브라우저, 편집기와 공식 Claude Desktop을 �
 이 요청을 AI 에이전트(codex, dsh, workbuddy — Claude Code는 아닐 수도 있음 😁) 에 보냅니다.
 
 ```markdown
-https://github.com/Lee-xeo/Claude-Cage의 최신 소스 코드를 받아 빌드하고 패키징해 설치해 줘. Cage 프록시가 내 로컬 Clash의 xx 노드를 통해 내 xx IP로 나가도록 설정해 줘. 전체 과정을 지켜보며 문제가 생기면 직접 수정하고, 필요하면 호환성 개선을 위해 프로젝트에 issue도 제출해 줘.
+https://github.com/askxiaozhang/Nano-AI-Cage의 최신 소스 코드를 받아 빌드하고 패키징해 설치해 줘. Cage 프록시가 내 로컬 Clash의 xx 노드를 통해 내 xx IP로 나가도록 설정해 줘. 전체 과정을 지켜보며 문제가 생기면 직접 수정하고, 필요하면 호환성 개선을 위해 프로젝트에 issue도 제출해 줘.
 ```
 
 필요한 것은 안정적인 네트워크 프록시 엔드포인트뿐입니다. 이 프로젝트는 프록시 공급자를 홍보하지 않습니다. 예를 들어 Black Error 웹사이트를 검색하여 제공자를 직접 찾을 수 있습니다.
@@ -74,7 +74,7 @@ Cage는 macOS, Windows, Linux를 지원합니다. 대상은 macOS 14+의 Apple S
 
 설치 패키지에는 작업 공간과 프록시 엔진이 포함됩니다. Go, Node.js, Docker, Clash를 미리 설치할 필요가 없습니다. 환경을 만들 때 저장 위치를 선택하면 Cage가 Debian 13 이미지와 개발 도구를 내려받습니다. Cage는 프록시 서비스나 Claude 계정을 제공하지 않습니다.
 
-소스 코드와 설치 패키지는 공개되어 있습니다. 버전 안내와 체크섬은 [Releases](https://github.com/Lee-xeo/Claude-Cage/releases)에서 확인하세요.
+소스 코드와 설치 패키지는 공개되어 있습니다. 버전 안내와 체크섬은 [Releases](https://github.com/askxiaozhang/Nano-AI-Cage/releases)에서 확인하세요.
 
 기능은 사용 중인 빌드에 따라 다르며, 공개 설치 파일의 기능과 검증 범위는 릴리스 설명을 기준으로 합니다.
 
@@ -113,7 +113,7 @@ macOS와 서명된 Windows 버전은 선택한 프록시를 통해 업데이트�
 | 네트워크 프록시 설치, 구성 및 첫 번째 프로젝트 열기 | [시작하기](docs/getting-started.md) |
 | 다운로드, 시작, 연결 및 로그인 문제 해결 | [FAQ 및 복구](docs/troubleshooting.md) |
 | 키보드 컨트롤, 모양, 데이터 지속성 및 종료 동작 알아보기 | [매일 사용](docs/getting-started.md#日常使用) |
-| 재현 가능한 문제 보고 | [GitHub Issues](https://github.com/Lee-xeo/Claude-Cage/issues) |
+| 재현 가능한 문제 보고 | [GitHub Issues](https://github.com/askxiaozhang/Nano-AI-Cage/issues) |
 | 수정·기능·문서 기여: Issue 검토 → 협업자 초대 → PR | [기여 안내 (중국어)](.github/CONTRIBUTING.md) |
 
 이 프로젝트는 빠르게 발전하고 있습니다. 피드백을 공유하려면 커뮤니티 그룹에 가입하세요. 커뮤니티 관리자를 환영합니다.
@@ -148,10 +148,10 @@ Cage는 독립적인 커뮤니티 프로젝트이며 Anthropic과 관련이 없�
 - [claude-post-ban-cleanup](https://github.com/l2461090/claude-post-ban-cleanup): 정확한 목록 확인, 사용자 데이터 보호 및 복구 가능한 캐시 정리 절차 참고. Cage에서 독립적으로 구현했습니다.
 
 
-<a href="https://www.star-history.com/?repos=Lee-xeo%2FClaude-Cage&amp;type=date">
+<a href="https://www.star-history.com/?repos=askxiaozhang%2FNano-AI-Cage&amp;type=date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date&amp;theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date" />
-    <img alt="Claude Cage GitHub Star History" src="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date" width="800" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date&amp;theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date" />
+    <img alt="Nano-AI-CAGE GitHub Star History" src="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date" width="800" />
   </picture>
 </a>

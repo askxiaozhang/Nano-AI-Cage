@@ -1,12 +1,12 @@
 <div align="center">
 
-<h1>Claude Cage</h1>
+<h1>Nano-AI-CAGE</h1>
 
 **አብረን ጊዜያችንን በተሻለ ሁኔታ ለመጠበቅ ሚስ Claudeን በቅርጫት ውስጥ አቆይ**
 
-<img src="assets/claude-cage-character.png" alt="Claude Cage" width="320" />
+<img src="assets/claude-cage-character.png" alt="Nano-AI-CAGE" width="320" />
 
-[![Release](https://img.shields.io/github/v/release/Lee-xeo/Claude-Cage?include_prereleases)](https://github.com/Lee-xeo/Claude-Cage/releases) [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/askxiaozhang/Nano-AI-Cage?include_prereleases)](https://github.com/askxiaozhang/Nano-AI-Cage/releases) [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 <a href="https://trendshift.io/repositories/339051#achievements"><img src="https://trendshift.io/api/badge/trendshift/repositories/339051/daily?language=Go" alt="Trendshift — Go Repository of the Day" width="250" height="55" /></a> <a href="https://trendshift.io/repositories/339051#achievements"><img src="https://trendshift.io/api/badge/trendshift/repositories/339051/weekly?language=Go" alt="Trendshift — Go Repository of the Week" width="250" height="55" /></a>
 
@@ -20,9 +20,9 @@
 
 ## በAnthropic ተሰላችተናል
 
-እንደ ተራ ተጠቃሚዎች ከClaude ጋር ለመነጋገር እና ለመተባበር፣ ስለ መለያ እገዳዎች እና የገንዘብ ኪሳራዎች እየተጨነቅን የVPS ምሳሌዎችን፣ የአሳሽ አሻራ መገለጫዎችን እና የአካባቢ ፍተሻዎችን ማዋቀር ሰልችቶናል። እናቀርባለን። **Claude Cage** -**ለመጠቀም ዝግጁ የሆነ የዴስክቶፕ መተግበሪያ፡ የራስዎን የአውታረ መረብ ፕሮክሲ ያዋቅሩ እና የእርስዎን ገለልተኛ አካባቢ፣ የሰዓት ሰቅ፣ ቋንቋ እና የአካባቢ ፍተሻዎችን በአንድ ቦታ ያስተዳድሩ።**
+እንደ ተራ ተጠቃሚዎች ከClaude ጋር ለመነጋገር እና ለመተባበር፣ ስለ መለያ እገዳዎች እና የገንዘብ ኪሳራዎች እየተጨነቅን የVPS ምሳሌዎችን፣ የአሳሽ አሻራ መገለጫዎችን እና የአካባቢ ፍተሻዎችን ማዋቀር ሰልችቶናል። እናቀርባለን። **Nano-AI-CAGE** -**ለመጠቀም ዝግጁ የሆነ የዴስክቶፕ መተግበሪያ፡ የራስዎን የአውታረ መረብ ፕሮክሲ ያዋቅሩ እና የእርስዎን ገለልተኛ አካባቢ፣ የሰዓት ሰቅ፣ ቋንቋ እና የአካባቢ ፍተሻዎችን በአንድ ቦታ ያስተዳድሩ።**
 
-Claude Cage ተርሚናልን፣ አሳሽን፣ አርታዒን እና ኦፊሴላዊውን Claude Desktop በአንድ የተለየ የሥራ ቦታ ያጣምራል። በmacOS፣ Windows እና Linux ላይ አንድ ዓይነት ትንሽ Debian 13 አካባቢ ይጠቀማል። የመረጡትን ፕሮጀክቶች ያጋሩ፣ አውታረ መረቡን በተናጠል ያስተዳድሩ፣ ከራስዎ አገልጋይ ጋር በSSH ይገናኙ እና ከስልክ ሥራ ይቀጥሉ። ዋና ባህሪያት፦
+Nano-AI-CAGE ተርሚናልን፣ አሳሽን፣ አርታዒን እና ኦፊሴላዊውን Claude Desktop በአንድ የተለየ የሥራ ቦታ ያጣምራል። በmacOS፣ Windows እና Linux ላይ አንድ ዓይነት ትንሽ Debian 13 አካባቢ ይጠቀማል። የመረጡትን ፕሮጀክቶች ያጋሩ፣ አውታረ መረቡን በተናጠል ያስተዳድሩ፣ ከራስዎ አገልጋይ ጋር በSSH ይገናኙ እና ከስልክ ሥራ ይቀጥሉ። ዋና ባህሪያት፦
 
 - ከአስተናጋጁ ተነጥለው የአውታረ መረብ ቅንብሮች; Cage ሁሉንም የአውታረ መረብ ትራፊክ በአካባቢያቸው ውስጥ በራሱ የአውታረ መረብ ፕሮክሲ በኩል ያደርሳል
 - የሰዓት ሰቅ እና ቋንቋን ጨምሮ ከአስተናጋጁ የተገለሉ የአሳሽ አሻራ ቅንጅቶች ከአውታረ መረቡ ተኪ አይፒ አካባቢ ጋር በራስ ሰር ማመሳሰል
@@ -59,7 +59,7 @@ Claude Cage ተርሚናልን፣ አሳሽን፣ አርታዒን እና ኦፊ�
 ይህንን ጥያቄ ወደ AI ወኪልዎ ይላኩ (ኮዴክስ ፣ ዲኤስኤስ ፣ የስራ ጓደኛ - ምናልባት Claude ኮድ 😁 ላይሆን ይችላል)
 
 ```markdown
-የ https://github.com/Lee-xeo/Claude-Cage የቅርብ ጊዜ ምንጭ ኮድ አውርድ፣ ገንባ፣ ጥቅል አድርግና ጫን። የCage ፕሮክሲ በአካባቢዬ ያለውን የClash xx ኖድ ተጠቅሞ በእኔ xx IP እንዲወጣ አዋቅር። ሂደቱን በሙሉ ተከታተል፣ ችግሮችን በቀጥታ አስተካክል፣ አስፈላጊ ከሆነም ተስማሚነትን ለማሻሻል በፕሮጀክቱ issue አስገባ።
+የ https://github.com/askxiaozhang/Nano-AI-Cage የቅርብ ጊዜ ምንጭ ኮድ አውርድ፣ ገንባ፣ ጥቅል አድርግና ጫን። የCage ፕሮክሲ በአካባቢዬ ያለውን የClash xx ኖድ ተጠቅሞ በእኔ xx IP እንዲወጣ አዋቅር። ሂደቱን በሙሉ ተከታተል፣ ችግሮችን በቀጥታ አስተካክል፣ አስፈላጊ ከሆነም ተስማሚነትን ለማሻሻል በፕሮጀክቱ issue አስገባ።
 ```
 
 የሚያስፈልግህ አስተማማኝ የአውታረ መረብ ተኪ የመጨረሻ ነጥብ ነው። ይህ ፕሮጀክት ማንኛውንም ተኪ አቅራቢን አያስተዋውቅም። አቅራቢን እራስዎ ማግኘት ይችላሉ፣ ለምሳሌ የጥቁር ስህተት ድህረ ገጽን በመፈለግ።
@@ -74,7 +74,7 @@ Cage macOS፣ Windows እና Linux ይደግፋል፦ Apple Silicon ከ macOS 14
 
 ጫኚው የሥራ ቦታን እና የፕሮክሲ ሞተርን ያካትታል። Go፣ Node.js፣ Docker ወይም Clash አስቀድሞ መጫን አያስፈልግም። አካባቢውን ሲፈጥሩ የማከማቻ ቦታን ይምረጡ፤ Cage የDebian 13 ምስሉን እና የልማት መሣሪያዎቹን ያወርዳል። Cage የፕሮክሲ አገልግሎት ወይም የClaude መለያ አይሰጥም።
 
-ምንጭ ኮድ እና ጫኚዎች ለሕዝብ ክፍት ናቸው። የስሪት ማስታወሻዎችን እና ቼክሰሞችን በ [Releases](https://github.com/Lee-xeo/Claude-Cage/releases) ይመልከቱ።
+ምንጭ ኮድ እና ጫኚዎች ለሕዝብ ክፍት ናቸው። የስሪት ማስታወሻዎችን እና ቼክሰሞችን በ [Releases](https://github.com/askxiaozhang/Nano-AI-Cage/releases) ይመልከቱ።
 
 ባህሪያት በሚጠቀሙት ግንባታ ይወሰናሉ፤ የሕዝብ መጫኛው ችሎታና የሙከራ ወሰን በልቀት ማስታወሻ ይገለጻሉ።
 
@@ -113,7 +113,7 @@ macOS እና የተፈረሙ Windows ስሪቶች በተመረጠው ፕሮክ�
 | የአውታረ መረብ ተኪ ጫን፣ አዋቅር እና የመጀመሪያህን ፕሮጀክት ክፈት | [በመጀመር ላይ](docs/getting-started.md) |
 | ማውረዶችን፣ ጅምርን፣ ግንኙነትን እና መግባትን መላ ፈልግ | [የሚጠየቁ ጥያቄዎች እና መልሶ ማግኛ](docs/troubleshooting.md) |
 | የቁልፍ ሰሌዳ መቆጣጠሪያዎችን፣ መልክን፣ የውሂብን ጽናት እና የመውጣት ባህሪን ተማር | [ዕለታዊ አጠቃቀም](docs/getting-started.md#日常使用) |
-| ሊባዛ የሚችል ጉዳይ ሪፖርት ያድርጉ | [GitHub Issues](https://github.com/Lee-xeo/Claude-Cage/issues) |
+| ሊባዛ የሚችል ጉዳይ ሪፖርት ያድርጉ | [GitHub Issues](https://github.com/askxiaozhang/Nano-AI-Cage/issues) |
 | ማስተካከያ፣ ባህሪ ወይም ሰነድ ለማበርከት፦ Issue ግምገማ → የተባባሪ ግብዣ → PR | [የአስተዋጽኦ መመሪያ (ቻይንኛ)](.github/CONTRIBUTING.md) |
 
 ፕሮጀክቱ በፍጥነት እያደገ ነው. ግብረመልስ ለማጋራት የማህበረሰብ ቡድኑን ይቀላቀሉ; የማህበረሰብ ጠባቂዎች እንኳን ደህና መጡ።
@@ -148,10 +148,10 @@ Cage ራሱን የቻለ የማህበረሰብ ፕሮጀክት ነው እና ከ
 - [claude-post-ban-cleanup](https://github.com/l2461090/claude-post-ban-cleanup): ለትክክለኛ ቆጠራ፣ ለውሂብ ጥበቃ እና ሊመለስ ለሚችል የመሸጎጫ ማጽዳት ሂደት ማጣቀሻ፤ በCage በተናጠል ተተግብሯል።
 
 
-<a href="https://www.star-history.com/?repos=Lee-xeo%2FClaude-Cage&amp;type=date">
+<a href="https://www.star-history.com/?repos=askxiaozhang%2FNano-AI-Cage&amp;type=date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date&amp;theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date" />
-    <img alt="Claude Cage GitHub Star History" src="https://api.star-history.com/svg?repos=Lee-xeo/Claude-Cage&amp;type=Date" width="800" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date&amp;theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date" />
+    <img alt="Nano-AI-CAGE GitHub Star History" src="https://api.star-history.com/svg?repos=askxiaozhang/Nano-AI-Cage&amp;type=Date" width="800" />
   </picture>
 </a>

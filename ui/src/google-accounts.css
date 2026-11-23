@@ -1,0 +1,213 @@
+.google-profiles {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 920px;
+}
+
+.google-profiles-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.google-profiles-header p {
+  margin: 0;
+  color: var(--muted);
+  max-width: 600px;
+  line-height: 1.5;
+}
+
+.google-profiles-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.google-add-form {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2, var(--surface));
+}
+
+.google-add-form label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.google-add-form input {
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.google-add-form-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.google-profile-list {
+  display: grid;
+  gap: 12px;
+}
+
+.google-profile {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.google-profile-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.google-profile-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.google-profile-identity {
+  flex: 1;
+  min-width: 0;
+}
+
+.google-profile-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.google-profile-name h4 {
+  margin: 0;
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.google-profile-rename {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.google-profile-rename input {
+  flex: 1;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.google-profile-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.google-profile-email {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.google-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--muted);
+}
+
+.google-badge.running {
+  background: color-mix(in srgb, #22c55e 16%, transparent);
+  color: #16a34a;
+}
+
+.google-badge.ready {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+
+.google-proxy-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.google-profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.google-profile-empty {
+  padding: 36px 20px;
+  text-align: center;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--muted);
+}
+
+.google-profile-empty p {
+  margin: 0 0 6px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.google-sidebar-sublist {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 16px;
+  margin-top: 2px;
+}
+
+.google-sidebar-subrow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.google-sidebar-subrow > .sidebar-link {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}

@@ -28,6 +28,7 @@ type terminalSession struct {
 	conversationEnded     bool
 	workspace             string
 	kind, claudeAccountID string
+	googleAccountID       string
 	loginGuestID          string
 	physicalProfile       string
 	loginRequested        time.Time
@@ -85,7 +86,7 @@ func (t *terminalSession) summary() map[string]any {
 		}
 	}
 	return map[string]any{"id": t.id, "title": t.title, "closed": closed, "workspace": t.workspace, "kind": t.kind,
-		"claude_account_id": t.claudeAccountID, "claude_account_source": t.claudeAccountSource, "cli_session_id": t.sharedID,
+		"claude_account_id": t.claudeAccountID, "claude_account_source": t.claudeAccountSource, "google_account_id": t.googleAccountID, "cli_session_id": t.sharedID,
 		"background_login": t.backgroundLogin, "login_notice": t.loginNotice, "cli_starting": t.cliStartupPendingLocked()}
 }
 

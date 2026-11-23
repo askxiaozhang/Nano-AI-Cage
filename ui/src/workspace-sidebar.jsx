@@ -76,6 +76,12 @@ export function WorkspaceSidebar({
   plugins,
   onClaudeAccounts,
   claudeAccountsOpen,
+  onGoogleAccounts,
+  googleAccountsOpen,
+  googleAccounts,
+  activeGoogleSession,
+  onSelectGoogleSession,
+  onStopGoogleSession,
   onClaudeWeb,
   onClaudeDesktop,
   accountDesktops,
@@ -204,11 +210,20 @@ export function WorkspaceSidebar({
             onOpenHub={onOpenAIDesktopHub}
             onSelectApp={onSelectAIDesktop}
             onStopApp={onStopAIDesktop}
+            googleAccounts={googleAccounts}
+            activeGoogleSession={activeGoogleSession}
+            onSelectGoogleSession={onSelectGoogleSession}
+            onStopGoogleSession={onStopGoogleSession}
+            onAddGoogleAccount={onGoogleAccounts}
           />
         )}
         <button className={`sidebar-link ${claudeAccountsOpen ? "selected" : ""}`} onClick={onClaudeAccounts}
           aria-current={claudeAccountsOpen ? "page" : undefined}>
           <UsersRound size={17} />{tr("Claude 账号管理")}
+        </button>
+        <button className={`sidebar-link ${googleAccountsOpen ? "selected" : ""}`} onClick={onGoogleAccounts}
+          aria-current={googleAccountsOpen ? "page" : undefined}>
+          <UsersRound size={17} />{tr("Google 账号管理")}
         </button>
       </nav>
       <div className="sidebar-scroll" ref={scroll}>

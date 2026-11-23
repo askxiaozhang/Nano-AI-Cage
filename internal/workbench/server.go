@@ -51,6 +51,7 @@ type Server struct {
 	browserViews                                     displayViewDemand
 	desktopStatus                                    desktopStatusCache
 	aiDesktopsMu                                     sync.Mutex
+	googleAccountsMu                                 sync.Mutex
 	agentNativeQueue                                 agentNativeQueue
 	clipboardFiles                                   map[string]clipboardFileSelection
 	clipboardRelease                                 func([]string)
@@ -361,6 +362,10 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("GET /api/diagnostics/export", s.diagnosticExport)
 	mux.HandleFunc("GET /api/claude-accounts", s.listClaudeAccounts)
 	mux.HandleFunc("POST /api/claude-accounts", s.mutateClaudeAccounts)
+	mux.HandleFunc("GET /api/google-accounts", s.listGoogleAccounts)
+	mux.HandleFunc("POST /api/google-accounts", s.mutateGoogleAccounts)
+	mux.HandleFunc("GET /api/google-accounts/{id}/{mode}/{action}", s.googleAccountSession)
+	mux.HandleFunc("POST /api/google-accounts/{id}/{mode}/{action}", s.googleAccountSession)
 	mux.HandleFunc("GET /api/token-usage", s.getTokenUsage)
 	mux.HandleFunc("POST /api/token-usage", s.mutateTokenUsage)
 	mux.HandleFunc("GET /api/vault", s.vaultList)

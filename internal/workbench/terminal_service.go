@@ -27,6 +27,7 @@ type terminalRequest struct {
 	Workspace       string  `json:"workspace"`
 	Kind            string  `json:"kind"`
 	ClaudeAccountID string  `json:"claude_account_id"`
+	GoogleAccountID string  `json:"google_account_id,omitempty"`
 	AutoHandoff     *bool   `json:"auto_handoff,omitempty"`
 	loginDraft      *claudeSelection
 	afterLogin      *terminalSession
@@ -339,12 +340,15 @@ func (s *Server) createTerminalLocked(input terminalRequest) (*terminalSession, 
 			return nil, err
 		}
 	}
-	if input.Kind != "" && input.Kind != "shell" && input.Kind != "claude" && input.Kind != "claude-login" {
+	if input.Kind != "" && input.Kind != "shell" && input.Kind != "claude" && input.Kind != "claude-login" && input.Kind != "google" {
 		return nil, errors.New("终端类型无效")
 	}
 	managed := input.Kind == "claude" || input.Kind == "claude-login"
 	if !managed && input.ClaudeAccountID != "" {
 		return nil, errors.New("普通终端不能指定 Claude 账号")
+	}
+	if managed && input.GoogleAccountID != "" {
+		return nil, errors.New("Claude 终端不能同时指定 Google 账号")
 	}
 	// Login works even when the last project is disconnected or has moved.
 	// It always runs from the guest home, without loading project settings.
@@ -433,6 +437,18 @@ func (s *Server) createTerminalLocked(input terminalRequest) (*terminalSession, 
 			return nil, err
 		}
 	}
+	var googleAcc *googleAccount
+	if input.Kind == "google" || input.GoogleAccountID != "" {
+		acc, ok := s.findGoogleAccount(input.GoogleAccountID)
+		if !ok {
+			return nil, errors.New("未找到指定的 Google 账号，请刷新列表")
+		}
+		googleAcc = &acc
+		script, err = s.googleTerminalScript(s.lifetimeContext(), guestPath(workspace), acc)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if selection.ID != "" {
 		script, err = s.routeAccountCommand(s.lifetimeContext(), selection.ID, script)
 		if err != nil {
@@ -450,6 +466,12 @@ func (s *Server) createTerminalLocked(input terminalRequest) (*terminalSession, 
 	session, err := s.terminals.startReplacing(input.afterLogin, input.BackgroundLogin, cmd, workspace, input.Kind, selection, finished, func() (terminalPTY, error) { return startTerminal(cmd, 100, 30) })
 	if input.requestContext != nil {
 		s.account.mu.Unlock()
+	}
+	if err == nil && googleAcc != nil {
+		session.mu.Lock()
+		session.googleAccountID = googleAcc.ID
+		session.title = "Google · " + googleAcc.Label
+		session.mu.Unlock()
 	}
 	if err == nil && ordinaryShell {
 		s.refreshShellLoginWatch()

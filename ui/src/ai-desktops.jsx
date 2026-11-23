@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Download,
   ExternalLink,
+  Globe2,
   Monitor,
   Pin,
   PinOff,
@@ -89,10 +90,16 @@ export function AIDesktopSidebarList({
   onOpenHub,
   onSelectApp,
   onStopApp,
+  googleAccounts,
+  activeGoogleSession,
+  onSelectGoogleSession,
+  onStopGoogleSession,
+  onAddGoogleAccount,
 }) {
   const tr = useTranslation();
   const [expanded, setExpanded] = useState(true);
   const items = model?.sidebarApps || [];
+  const gAccounts = googleAccounts?.accounts || [];
 
   return (
     <div className="ai-desktops-nav">
@@ -119,29 +126,86 @@ export function AIDesktopSidebarList({
       {expanded && items.length > 0 && (
         <div className="ai-desktops-sidebar-list">
           {items.map((app) => (
-            <div className="ai-desktops-sidebar-row" key={app.id}>
-              <button
-                className={`sidebar-link ${activeAppId === app.id ? "selected" : ""}`}
-                disabled={disabled}
-                title={app.name + (app.running ? ` · ${tr("运行中")}` : app.installed ? ` · ${tr("已安装")}` : ` · ${tr("未安装")}`)}
-                onClick={() => onSelectApp(app.id)}
-              >
-                <Monitor size={15} />
-                <span className="ai-desktops-sidebar-label">{app.name}</span>
-                {app.running && <span className="ai-desktops-running-dot" aria-label={tr("运行中")}>●</span>}
-              </button>
-              {app.running && onStopApp && (
+            <React.Fragment key={app.id}>
+              <div className="ai-desktops-sidebar-row">
                 <button
-                  className="icon-button"
+                  className={`sidebar-link ${activeAppId === app.id ? "selected" : ""}`}
                   disabled={disabled}
-                  aria-label={`${tr("关闭")} ${app.name}`}
-                  title={`${tr("关闭")} ${app.name}`}
-                  onClick={() => onStopApp(app)}
+                  title={app.name + (app.running ? ` · ${tr("运行中")}` : app.installed ? ` · ${tr("已安装")}` : ` · ${tr("未安装")}`)}
+                  onClick={() => onSelectApp(app.id)}
                 >
-                  <Power size={13} />
+                  <Monitor size={15} />
+                  <span className="ai-desktops-sidebar-label">{app.name}</span>
+                  {app.running && <span className="ai-desktops-running-dot" aria-label={tr("运行中")}>●</span>}
                 </button>
+                {app.running && onStopApp && (
+                  <button
+                    className="icon-button"
+                    disabled={disabled}
+                    aria-label={`${tr("关闭")} ${app.name}`}
+                    title={`${tr("关闭")} ${app.name}`}
+                    onClick={() => onStopApp(app)}
+                  >
+                    <Power size={13} />
+                  </button>
+                )}
+              </div>
+              {app.id === "antigravity" && app.installed && googleAccounts?.supported && (
+                <div className="google-sidebar-sublist">
+                  {gAccounts.map((acc) => {
+                    const caption = acc.label || acc.email || acc.detected_email || `Google #${acc.number}`;
+                    const agSelected = activeGoogleSession?.accountId === acc.id && activeGoogleSession?.mode === "antigravity";
+                    const brSelected = activeGoogleSession?.accountId === acc.id && activeGoogleSession?.mode === "browser";
+                    return (
+                      <div className="google-sidebar-subrow" key={acc.id}>
+                        <button
+                          className={`sidebar-link ${agSelected ? "selected" : ""}`}
+                          disabled={disabled}
+                          title={`${caption}${acc.antigravity_running ? " · " + tr("运行中") : ""}`}
+                          onClick={() => onSelectGoogleSession?.(acc, "antigravity")}
+                        >
+                          <Monitor size={13} />
+                          <span className="ai-desktops-sidebar-label">{caption}</span>
+                          {acc.antigravity_running && (
+                            <span className="ai-desktops-running-dot" aria-label={tr("运行中")}>●</span>
+                          )}
+                        </button>
+                        <button
+                          className={`icon-button ${brSelected ? "selected" : ""}`}
+                          disabled={disabled}
+                          title={`${caption} · ${tr("独立浏览器")}`}
+                          aria-label={`${caption} ${tr("独立浏览器")}`}
+                          onClick={() => onSelectGoogleSession?.(acc, "browser")}
+                        >
+                          <Globe2 size={13} />
+                        </button>
+                        {acc.antigravity_running && onStopGoogleSession && (
+                          <button
+                            className="icon-button"
+                            disabled={disabled}
+                            title={`${tr("关闭")} ${caption}`}
+                            aria-label={`${tr("关闭")} ${caption}`}
+                            onClick={() => onStopGoogleSession(acc, "antigravity")}
+                          >
+                            <Power size={12} />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {onAddGoogleAccount && (
+                    <button
+                      className="sidebar-link"
+                      style={{ fontSize: "12px", opacity: 0.8 }}
+                      onClick={onAddGoogleAccount}
+                    >
+                      <Plus size={13} />
+                      <span>{tr("管理 / 新建 Google 窗口")}</span>
+                    </button>
+                  )}
+                </div>
               )}
-            </div>
+            </React.Fragment>
           ))}
         </div>
       )}

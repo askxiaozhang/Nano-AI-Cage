@@ -37,6 +37,7 @@ import { DesktopPanes, useAccountDesktops } from "./account-desktops";
 import { ClaudeDesktop } from "./claude-desktop";
 import { AIDesktopHub, AIDesktopView, useAIDesktops } from "./ai-desktops";
 import { ClaudeAccountsPanel, useClaudeAccounts } from "./claude-accounts";
+import { GoogleAccountsPanel, GoogleSessionView, useGoogleAccounts } from "./google-accounts";
 import { AccountProvider, AccountGate, useAccount } from "./account";
 import { BrowserHeader, BrowserTabRail, TerminalHeader, ExpandSidebar, ExpandPane } from "./pane-headers";
 import { useDownloadNotifications, useDesktopFiles } from "./browser-downloads";
@@ -84,6 +85,7 @@ function App() {
   const [tailnetLogin, setTailnetLogin] = useState(null);
   const [desktopOpen, setDesktopOpen] = useState(false);
   const [activeAIDesktop, setActiveAIDesktop] = useState("");
+  const [activeGoogleSession, setActiveGoogleSession] = useState(null);
   const [terminalChoice, setTerminalChoice] = useState(null);
   const [openingSession, setOpeningSession] = useState("");
   const [sessionOpenError, setSessionOpenError] = useState(null);
@@ -160,7 +162,7 @@ function App() {
   activeRef.current = active;
   readyRef.current = Boolean(status?.ready);
   const storageRecovery = status?.storage_recovery?.required;
-  const anyDesktopOpen = desktopOpen || Boolean(activeAIDesktop);
+  const anyDesktopOpen = desktopOpen || Boolean(activeAIDesktop) || Boolean(activeGoogleSession);
   const current = tabs.find((t) => t.id === active),
     terminal = !anyDesktopOpen && current?.kind === "terminal",
     busy = Boolean(status?.job?.running),
@@ -171,6 +173,7 @@ function App() {
     if (storageRecovery) {
       setDesktopOpen(false);
       setActiveAIDesktop("");
+      setActiveGoogleSession(null);
       setHome(true);
       setStartRequest(null);
     }
@@ -306,9 +309,10 @@ function App() {
   // A plugin page may mark its notice as an error, shown in the error color.
   const notify = (text, tone) => { setToast(text); setToastTone(tone === "error" ? "error" : ""); };
   const accountDesktops = useAccountDesktops(
-    () => {setManagementPage(""); setActiveAIDesktop(""); setHome(false); setDesktopOpen(true);},
+    () => {setManagementPage(""); setActiveAIDesktop(""); setActiveGoogleSession(null); setHome(false); setDesktopOpen(true);},
     () => {setDesktopOpen(false); setHome(true);}, notify, (...args) => confirm(...args), desktopOpen && running && status?.account_desktops_supported && !managementPage, status?.desktop_catalog_revision);
   const aiDesktops = useAIDesktops(running, status?.job?.id || "");
+  const googleAccounts = useGoogleAccounts(running, status?.job?.id || "");
   const viewingAccountDesktop = desktopOpen && accountDesktops.panes.length > 0;
   const audio = useAudioOutput(running && !viewingAccountDesktop && !storageRecovery && !status?.environment_update_required && !connectionError);
   useEffect(() => {
@@ -389,6 +393,7 @@ function App() {
     if (tab && tab.kind !== "terminal") browserDismissed.current = false;
     setDesktopOpen(false);
     setActiveAIDesktop("");
+    setActiveGoogleSession(null);
     setHome(false);
     if (tab?.kind === "browser-settings") setLayout({ active: id });
     else setActive(id);
@@ -462,6 +467,7 @@ function App() {
       setManagementPage("");
       setDesktopOpen(false);
       setActiveAIDesktop("");
+      setActiveGoogleSession(null);
       setHome(false);
       setTabs((list) =>
         list.some((t) => t.id === result.id)
@@ -486,7 +492,7 @@ function App() {
     if (!result?.id) return;
     browserDismissed.current = false;
     setTailnetLogin(null);
-    setManagementPage(""); setDesktopOpen(false); setActiveAIDesktop(""); setHome(false);
+    setManagementPage(""); setDesktopOpen(false); setActiveAIDesktop(""); setActiveGoogleSession(null); setHome(false);
     setTabs(previous => previous.some(tab => tab.id === result.id)
       ? previous.map(tab => tab.id === result.id ? { ...tab, ...result } : tab)
       : [...previous, result]);
@@ -553,6 +559,7 @@ function App() {
     setSelectedProject(result.workspace);
     setDesktopOpen(false);
     setActiveAIDesktop("");
+    setActiveGoogleSession(null);
     setHome(false);
     setActive(tab.id);
   };
@@ -621,6 +628,7 @@ function App() {
       setManagementPage("");
       setDesktopOpen(false);
       setActiveAIDesktop("");
+      setActiveGoogleSession(null);
       setHome(false);
       setTabs((list) =>
         list.some((t) => t.id === result.id)
@@ -1183,6 +1191,7 @@ function App() {
           document.dispatchEvent(new Event("cage-close-modal"));
         else if (desktopOpen) setDesktopOpen(false);
         else if (activeAIDesktop) setActiveAIDesktop("");
+        else if (activeGoogleSession) setActiveGoogleSession(null);
         else if (current) await closeTab(current);
       }
       if (command === "quit") {
@@ -1519,6 +1528,35 @@ function App() {
           <WorkspaceSidebar
             onClaudeAccounts={() => setManagementPage("claude-accounts")}
             claudeAccountsOpen={managementPage === "claude-accounts"}
+            onGoogleAccounts={() => setManagementPage("google-accounts")}
+            googleAccountsOpen={managementPage === "google-accounts"}
+            googleAccounts={googleAccounts}
+            activeGoogleSession={!managementPage ? activeGoogleSession : null}
+            onSelectGoogleSession={(acc, mode) => {
+              accountDesktops.clear();
+              setDesktopOpen(false);
+              setActiveAIDesktop("");
+              setManagementPage("");
+              setHome(false);
+              setActiveGoogleSession({ accountId: acc.id, mode });
+            }}
+            onStopGoogleSession={async (acc, mode) => {
+              const modeLabel = mode === "browser" ? "独立浏览器" : "Google Antigravity";
+              if (
+                await confirm({
+                  title: `关闭 ${acc.label || acc.email || "Google"} 的 ${modeLabel}？`,
+                  body: "请先保存窗口内的工作。其他账号会话和终端会继续运行。",
+                  confirm: "关闭窗口",
+                })
+              ) {
+                try {
+                  await api(`/google-accounts/${acc.id}/${mode}/stop`, {});
+                  void googleAccounts.refresh();
+                } catch (e) {
+                  notify(e.message, "error");
+                }
+              }
+            }}
             tailscaleOpen={managementPage === "tailscale"}
             plugins={pluginsAvailable ? { model: hostPlugins, open: pluginSidebar, page: managementPage === "plugins" ? pluginPage : null,
               onConfirm: confirm, onOpen: () => setPluginSidebar(true), onBack: leavePlugins, onPage: openPluginPage,
@@ -1550,7 +1588,7 @@ function App() {
             running={running}
             runtimeLabel={runtimeLabel}
             network={network}
-            onHome={() => { setManagementPage(""); setDesktopOpen(false); setActiveAIDesktop(""); setHome(true); }}
+            onHome={() => { setManagementPage(""); setDesktopOpen(false); setActiveAIDesktop(""); setActiveGoogleSession(null); setHome(true); }}
             onOpenProject={(path = "") => setProjectDialog({ path })}
             onSelect={select}
             onClose={closeTab}
@@ -1572,7 +1610,7 @@ function App() {
             desktopOpen={!managementPage && desktopOpen}
             onClaudeWeb={() => openBrowserPage("https://claude.ai/")}
             accountDesktops={status.account_desktops_supported ? accountDesktops : null}
-            onClaudeDesktop={() => { accountDesktops.clear(); setActiveAIDesktop(""); setManagementPage(""); setHome(false); setDesktopOpen(true); }}
+            onClaudeDesktop={() => { accountDesktops.clear(); setActiveAIDesktop(""); setActiveGoogleSession(null); setManagementPage(""); setHome(false); setDesktopOpen(true); }}
             aiDesktops={aiDesktops}
             aiDesktopHubOpen={managementPage === "ai-desktops"}
             activeAIDesktop={!managementPage ? activeAIDesktop : ""}
@@ -1583,6 +1621,7 @@ function App() {
             onSelectAIDesktop={(id) => {
               accountDesktops.clear();
               setDesktopOpen(false);
+              setActiveGoogleSession(null);
               setManagementPage("");
               setHome(false);
               setActiveAIDesktop(id);
@@ -1635,18 +1674,70 @@ function App() {
             <main className="management-page" aria-labelledby={managementPage + "-title"}>
               <header className="chrome management-header">
                 {sidebarButton()}
-                <h1 id={managementPage + "-title"} tabIndex={-1}>{managementPage === "tailscale" ? "Tailscale" : managementPage === "ai-desktops" ? tr("AI Desktops") : managementPage === "plugins" && pluginPage ? pluginPageTitle(hostPlugins, pluginPage) : managementPage === "plugin-view" ? openPage?.title || tr("插件页面") : tr("Claude 账号管理")}</h1>
+                <h1 id={managementPage + "-title"} tabIndex={-1}>{managementPage === "tailscale" ? "Tailscale" : managementPage === "ai-desktops" ? tr("AI Desktops") : managementPage === "google-accounts" ? tr("Google 账号管理") : managementPage === "plugins" && pluginPage ? pluginPageTitle(hostPlugins, pluginPage) : managementPage === "plugin-view" ? openPage?.title || tr("插件页面") : tr("Claude 账号管理")}</h1>
               </header>
               <div className="management-content">
                 {managementPage === "ai-desktops" ? <AIDesktopHub model={aiDesktops} status={status}
                   onSelectApp={(id) => {
                     accountDesktops.clear();
                     setDesktopOpen(false);
+                    setActiveGoogleSession(null);
                     setManagementPage("");
                     setHome(false);
                     setActiveAIDesktop(id);
                   }}
                   onConfirm={confirm} onStatus={notify} onDetails={() => setDetails(true)} />
+                : managementPage === "google-accounts" ? <GoogleAccountsPanel
+                  store={googleAccounts}
+                  proxySources={proxy?.sources || []}
+                  desktopNetwork={status.account_desktops_supported}
+                  running={status.vm_running}
+                  environmentBusy={busy || storageRecovery}
+                  onOpenAntigravity={(acc) => {
+                    accountDesktops.clear();
+                    setDesktopOpen(false);
+                    setActiveAIDesktop("");
+                    setManagementPage("");
+                    setHome(false);
+                    setActiveGoogleSession({ accountId: acc.id, mode: "antigravity" });
+                  }}
+                  onOpenBrowser={(acc) => {
+                    accountDesktops.clear();
+                    setDesktopOpen(false);
+                    setActiveAIDesktop("");
+                    setManagementPage("");
+                    setHome(false);
+                    setActiveGoogleSession({ accountId: acc.id, mode: "browser" });
+                  }}
+                  onOpenTerminal={async (acc) => {
+                    try {
+                      const targetWorkspace = workspace || status.workspace || "";
+                      const result = await api("/terminals", { workspace: targetWorkspace, kind: "google", google_account_id: acc.id });
+                      showTerminal(result);
+                      sessionsChanged();
+                    } catch (e) {
+                      notify(e.message, "error");
+                    }
+                  }}
+                  onStopSession={async (acc, mode) => {
+                    const modeLabel = mode === "browser" ? "独立浏览器" : "Google Antigravity";
+                    if (
+                      await confirm({
+                        title: `关闭 ${acc.label || acc.email || "Google"} 的 ${modeLabel}？`,
+                        body: "请先保存窗口内的工作。其他账号会话和终端会继续运行。",
+                        confirm: "关闭窗口",
+                      })
+                    ) {
+                      try {
+                        await api(`/google-accounts/${acc.id}/${mode}/stop`, {});
+                        void googleAccounts.refresh();
+                      } catch (e) {
+                        notify(e.message, "error");
+                      }
+                    }
+                  }}
+                  onConfirm={confirm}
+                />
                 : managementPage === "plugin-view" ? <PluginView key={pluginView} plugin={openPage?.plugin || pluginView.split("/")[0]} view={openPage?.view || { id: pluginView.split("/")[1] || "" }}
                   onConfirm={confirm} onNotify={notify} onOpenUrl={async url => Boolean(await openBrowserPage(url, false))} />
                 : managementPage === "plugins" ? pluginPage && <HostPluginsPanel model={hostPlugins} page={pluginPage} onPage={openPluginPage} status={status} onConfirm={confirm} /> : managementPage === "tailscale" ? <TailscalePanel status={status}
@@ -1687,6 +1778,17 @@ function App() {
               sidebarCollapsed={sidebarCollapsed}
               onExpand={() => persist("cage-sidebar-collapsed", false, setSidebarCollapsed)}
               onCatalogRefresh={() => void aiDesktops.refresh()}
+            />}
+            {!storageRecovery && activeGoogleSession && <GoogleSessionView
+              key={`${activeGoogleSession.accountId}:${activeGoogleSession.mode}`}
+              account={googleAccounts.accounts.find((a) => a.id === activeGoogleSession.accountId) || { id: activeGoogleSession.accountId }}
+              mode={activeGoogleSession.mode}
+              status={status} visible={!settingsOpen && !managementPage} remoteRef={remote}
+              onStatus={notify} onFallback={(text, message) => setTransfer({ text, message })}
+              onConfirm={confirm} onDetails={() => setDetails(true)}
+              sidebarCollapsed={sidebarCollapsed}
+              onExpand={() => persist("cage-sidebar-collapsed", false, setSidebarCollapsed)}
+              onRefreshAccounts={() => void googleAccounts.refresh()}
             />}
             {status.environment_update_required && !busy && (
               <div className="environment-update-banner" role="status">

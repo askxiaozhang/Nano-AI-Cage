@@ -203,7 +203,14 @@ func newApp(io IO) (*app, error) {
 
 func (e *app) instanceName(dir string) string {
 	if e.cageProfile != "" {
-		return cage.InstanceName(e.cageProfile, dir)
+		// A profile owns one shared environment, and its VM is named after the
+		// profile's environment directory (cage.EnvironmentDir, the same value
+		// the workbench's Server.environmentDir returns). Naming it after the
+		// caller's directory instead pointed `cage up`, `cage login`,
+		// `cage update-tools`, `cage run` and `cage shell` at a different VM
+		// from every working directory but that one: a scratch VM for the
+		// caller's path, or the refusal when the path holds the tool itself.
+		return cage.InstanceName(e.cageProfile, cage.EnvironmentDir(e.cageProfile))
 	}
 	return e.names.Name(dir)
 }

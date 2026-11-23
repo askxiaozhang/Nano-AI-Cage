@@ -139,6 +139,12 @@ macOS 和已签名 Windows 版本支持通过所选代理更新；Windows 未签
    - 在 **AI Desktops** 卡片或应用顶部工具栏中点击 **更新** 可重新拉取最新版本；点击垃圾桶图标可卸载应用（通常保留用户配置目录）。
    - Apple Silicon Mac 客机为 `arm64`，Windows / Linux x64 客机为 `amd64`。若某个应用仅提供单架构包，卡片会提示支持的架构。
 
+### Antigravity 下载页返回 HTTP 403
+
+安装或更新时，Cage 会先从 Google 官方下载页查询最新的 Linux 安装包。如果页面返回 HTTP 403 或无法解析下载链接，Cage 会自动改用 Google 官方 Antigravity IDE 2.8.0 安装包，并按客机架构选择 `amd64` 或 `arm64`。
+
+可以在“操作详情”中看到是否启用了备用下载。如果安装包直链也下载失败，请检查 Cage 当前的代理节点是否能访问 Google 下载域名 `edgedl.me.gvt1.com`，然后在应用卡片上重试。[Google 官方下载页](https://antigravity.google/download)
+
 ## 使用前了解这些边界
 
 - 共享项目中的修改和删除直接影响本机原文件，包括 Git 操作。请使用版本控制或备份，并核对提交结果。

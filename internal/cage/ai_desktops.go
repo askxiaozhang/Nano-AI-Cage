@@ -244,7 +244,7 @@ for f in files:
             for line in open(f, encoding="utf-8", errors="ignore"):
                 if line.startswith("Exec="):
                     cmd = line.split("=", 1)[1].strip()
-                    cmd = re.sub(r"\s+%[a-zA-Z]", "", cmd).strip()
+                    cmd = re.sub(r"\s+%%[a-zA-Z]", "", cmd).strip()
                     if cmd:
                         print(cmd)
                         sys.exit(0)
@@ -402,9 +402,9 @@ printf 'Cursor 已安装。\n'
 
 	case "antigravity-tarball":
 		body = `
-printf '正在从 antigravity.google 解析最新官方 Linux 下载地址…\n'
-cage_curl_download "$temporary/download.html" --proto '=https' --proto-redir '=https' --compressed -fSL --connect-timeout 20 'https://antigravity.google/download' -o "$temporary/download.html" || { echo '无法访问 Antigravity 官方下载页面；请检查环境的网络和代理设置，并查看上方 HTTP 错误后重试。' >&2; exit 1; }
-DOWNLOAD_URL="$(/usr/bin/python3 - "$temporary/download.html" "$ARCH" <<'CAGE_AG_URL'
+resolve_antigravity_url() {
+  cage_curl_download "$temporary/download.html" --proto '=https' --proto-redir '=https' --compressed -fSL --connect-timeout 20 'https://antigravity.google/download' -o "$temporary/download.html" >&2 || return $?
+  /usr/bin/python3 - "$temporary/download.html" "$ARCH" <<'CAGE_AG_URL'
 import re, sys, urllib.request
 html = open(sys.argv[1], encoding="utf-8", errors="ignore").read()
 arch = sys.argv[2]
@@ -438,7 +438,17 @@ if found:
     sys.exit(0)
 sys.exit(1)
 CAGE_AG_URL
-)" || { echo "未能从 antigravity.google 解析 ${ARCH} 官方安装包链接，请检查网络后重试。" >&2; exit 1; }
+}
+printf '正在从 antigravity.google 解析最新官方 Linux 下载地址…\n'
+DOWNLOAD_URL="$(resolve_antigravity_url)" || {
+  status=$?
+  if (( status >= 128 )); then exit "$status"; fi
+  # Official IDE release links from https://antigravity.google/download.
+  platform=linux-x64
+  if [ "$ARCH" = arm64 ]; then platform=linux-arm; fi
+  DOWNLOAD_URL="https://edgedl.me.gvt1.com/edgedl/release2/j0qc3/antigravity/stable/2.8.0-6733682917113856/${platform}/Antigravity%20IDE.tar.gz"
+  printf '未能读取最新版本链接，改用 Google 官方 Antigravity IDE 2.8.0 安装包。\n' >&2
+}
 printf '正在下载 Google Antigravity (%s)…\n' "$ARCH"
 cage_curl_download "$temporary/antigravity.tar.gz" --proto '=https' --proto-redir '=https' -fSL --connect-timeout 20 "$DOWNLOAD_URL" -o "$temporary/antigravity.tar.gz"
 mkdir -p "$temporary/extracted"

@@ -311,8 +311,8 @@ function App() {
   const accountDesktops = useAccountDesktops(
     () => {setManagementPage(""); setActiveAIDesktop(""); setActiveGoogleSession(null); setHome(false); setDesktopOpen(true);},
     () => {setDesktopOpen(false); setHome(true);}, notify, (...args) => confirm(...args), desktopOpen && running && status?.account_desktops_supported && !managementPage, status?.desktop_catalog_revision);
-  const aiDesktops = useAIDesktops(running, status?.job?.id || "");
-  const googleAccounts = useGoogleAccounts(running, status?.job?.id || "");
+  const aiDesktops = useAIDesktops(running, Boolean(status?.ready), status?.job?.id || "");
+  const googleAccounts = useGoogleAccounts(running, Boolean(status?.ready), status?.job?.id || "");
   const viewingAccountDesktop = desktopOpen && accountDesktops.panes.length > 0;
   const audio = useAudioOutput(running && !viewingAccountDesktop && !storageRecovery && !status?.environment_update_required && !connectionError);
   useEffect(() => {

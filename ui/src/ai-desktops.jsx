@@ -22,7 +22,7 @@ import { useWindowVisibility } from "./window-visibility";
 import { useTranslation } from "./interface-language.mjs";
 import "./ai-desktops.css";
 
-export function useAIDesktops(running, jobID) {
+export function useAIDesktops(running, ready, jobID) {
   const [catalog, setCatalog] = useState({ arch: "", vm_running: false, apps: [] });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -47,7 +47,7 @@ export function useAIDesktops(running, jobID) {
 
   useEffect(() => {
     void refresh();
-  }, [running, jobID, refresh]);
+  }, [running, ready, jobID, refresh]);
 
   const pin = useCallback(async (id, pinned) => {
     await api(`/ai-desktops/${id}/pin`, { pinned });

@@ -79,10 +79,18 @@ ag_meta = Path('/etc/claude-cage/ai-desktops/antigravity.json')
 if ag_meta.is_file():
     try:
         meta = json.loads(ag_meta.read_text(encoding='utf-8'))
+        kind = meta.get('kind', '')
+        pkg = meta.get('package', '')
         app_dir = meta.get('app_dir', '')
-        ag_installed = bool(app_dir) and Path(app_dir).is_dir()
+        if kind == 'deb' and pkg:
+            out = run('dpkg-query', '-W', '-f=${Status}', pkg)
+            ag_installed = out == 'install ok installed'
+        elif app_dir:
+            ag_installed = Path(app_dir).is_dir()
     except Exception:
         pass
+if not ag_installed and Path('/opt/cage-ai-desktops/antigravity').is_dir():
+    ag_installed = True
 
 email_re = re.compile(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}')
 

@@ -18,7 +18,7 @@ import { useWindowVisibility } from "./window-visibility";
 import { useTranslation } from "./interface-language.mjs";
 import "./google-accounts.css";
 
-export function useGoogleAccounts(running, jobID) {
+export function useGoogleAccounts(running, ready, jobID) {
   const [state, setState] = useState({
     supported: true,
     vm_running: false,
@@ -53,7 +53,7 @@ export function useGoogleAccounts(running, jobID) {
 
   useEffect(() => {
     void refresh();
-  }, [running, jobID, refresh]);
+  }, [running, ready, jobID, refresh]);
 
   const mutate = useCallback(async (payload) => {
     const res = await api("/google-accounts", payload);
@@ -289,6 +289,10 @@ export function GoogleAccountsPanel({
   const [email, setEmail] = useState("");
   const [node, setNode] = useState("");
   const [actionError, setActionError] = useState("");
+
+  useEffect(() => {
+    if (running) void store.refresh();
+  }, [running, store.refresh]);
 
   const perform = async (operation) => {
     if (busy) return;

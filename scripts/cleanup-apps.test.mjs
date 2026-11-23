@@ -16,6 +16,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { cleanupApps } from "./cleanup-apps.mjs";
 
 const cageID = "io.github.askxiaozhang.nano-ai-cage";
+const upstreamCageID = "io.github.lee-xeo.claude-cage";
 test("cleanup preserves a Cage executable still in use", { skip: process.platform !== "darwin" }, async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "cage-cleanup-running-"));
   let child;
@@ -85,6 +86,23 @@ test(
     await assert.rejects(access(old), { code: "ENOENT" });
     for (const preserved of [latest, foreign, external])
       await access(preserved);
+  },
+);
+
+test(
+  "cleanup accepts a Nano-AI-CAGE replacement and preserves upstream Cage",
+  { skip: process.platform !== "darwin" },
+  async (t) => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "nano-cage-cleanup-"));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const latest = await app(path.join(directory, "Nano-AI-CAGE.app"));
+    const old = await app(path.join(directory, "old-Nano-AI-CAGE.app"));
+    const upstream = await app(path.join(directory, "Cage.app"), upstreamCageID);
+
+    assert.deepEqual(await cleanupApps({ keep: [latest], roots: [directory] }), [old]);
+    await assert.rejects(access(old), { code: "ENOENT" });
+    await access(latest);
+    await access(upstream);
   },
 );
 

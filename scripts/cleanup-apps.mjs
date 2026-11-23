@@ -5,24 +5,24 @@ import { lstat, readdir, realpath, rm } from "node:fs/promises";
 import path from "node:path";
 import { isMainModule } from "./is-main-module.mjs";
 
-// Must match bundle_id in scripts/build-app.sh: cleanup only removes bundles
-// that belong to this app, so a stale id here refuses the build's own output.
-const bundleID = "io.github.askxiaozhang.nano-ai-cage";
-function isCage(bundle) {
+const cageBundleIDs = new Set([
+  "io.github.lee-xeo.claude-cage",
+  // Keep the Nano-AI-CAGE ID in sync with bundle_id in scripts/build-app.sh.
+  "io.github.askxiaozhang.nano-ai-cage",
+]);
+function readBundleID(bundle) {
   try {
-    return (
-      execFileSync(
-        "/usr/libexec/PlistBuddy",
-        [
-          "-c",
-          "Print :CFBundleIdentifier",
-          path.join(bundle, "Contents/Info.plist"),
-        ],
-        { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-      ).trim() === bundleID
-    );
+    return execFileSync(
+      "/usr/libexec/PlistBuddy",
+      [
+        "-c",
+        "Print :CFBundleIdentifier",
+        path.join(bundle, "Contents/Info.plist"),
+      ],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    ).trim();
   } catch {
-    return false;
+    return null;
   }
 }
 function inUse(bundle) {
@@ -46,8 +46,11 @@ export async function cleanupApps({ keep, roots, onInUse = () => {}, onModified 
   if (!keep.length)
     throw new Error("At least one verified Cage.app must be kept.");
   const retained = new Set();
+  const replacementIDs = new Set();
   for (const bundle of keep) {
-    if (!isCage(bundle) || !intact(bundle)) throw new Error(`Invalid replacement App: ${bundle}`);
+    const id = readBundleID(bundle);
+    if (!cageBundleIDs.has(id) || !intact(bundle)) throw new Error(`Invalid replacement App: ${bundle}`);
+    replacementIDs.add(id);
     retained.add(await realpath(bundle));
   }
   const removed = [];
@@ -63,7 +66,7 @@ export async function cleanupApps({ keep, roots, onInUse = () => {}, onModified 
     const canonical = await realpath(directory);
     if (retained.has(canonical)) return;
     if (directory.endsWith(".app")) {
-      if (isCage(directory)) {
+      if (replacementIDs.has(readBundleID(directory))) {
         if (!intact(directory)) {
           onModified(directory);
           return;

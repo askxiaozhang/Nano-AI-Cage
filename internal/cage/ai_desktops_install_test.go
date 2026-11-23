@@ -71,3 +71,41 @@ cage_curl_download() {
 		})
 	}
 }
+
+func TestAntigravitySelectsDesktopExecutable(t *testing.T) {
+	script := AIDesktopInstallScript(AIDesktopSpec{ID: "antigravity", InstallType: "antigravity-tarball"})
+	start := strings.Index(script, "app_root=\"$temporary/extracted\"")
+	if start < 0 {
+		t.Fatal("missing archive layout detection")
+	}
+	selectExec, _, ok := strings.Cut(script[start:], "\nsudo install -d")
+	if !ok {
+		t.Fatal("missing end of executable selection")
+	}
+	for _, tc := range []struct{ layout, name string }{{"", "antigravity"}, {"Antigravity IDE", "antigravity-ide"}, {"cli-only", ""}} {
+		t.Run(tc.layout+tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			root := filepath.Join(dir, "extracted", tc.layout)
+			if err := os.MkdirAll(filepath.Join(root, "bin"), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, "bin", "antigravity-ide"), nil, 0755); err != nil {
+				t.Fatal(err)
+			}
+			if tc.name != "" {
+				if err := os.WriteFile(filepath.Join(root, tc.name), nil, 0755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cmd := exec.Command("bash", "-c", "set -eu\ntemporary=$1\nAPP_DIR=/app\n"+selectExec+"\necho \"$EXEC_CMD\"", "bash", dir)
+			out, err := cmd.CombinedOutput()
+			if tc.name == "" {
+				if err == nil {
+					t.Fatal("accepted a CLI-only archive")
+				}
+			} else if err != nil || strings.TrimSpace(string(out)) != "/app/"+tc.name {
+				t.Fatalf("unexpected executable: %s (%v)", out, err)
+			}
+		})
+	}
+}

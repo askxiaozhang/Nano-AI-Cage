@@ -455,22 +455,29 @@ mkdir -p "$temporary/extracted"
 printf '正在解压安装 Google Antigravity…\n'
 tar -xzf "$temporary/antigravity.tar.gz" -C "$temporary/extracted"
 APP_DIR="/opt/cage-ai-desktops/antigravity"
-sudo rm -rf "$APP_DIR"
-sudo install -d -m 0755 /opt/cage-ai-desktops
+app_root="$temporary/extracted"
 TOP_COUNT="$(find "$temporary/extracted" -mindepth 1 -maxdepth 1 | wc -l)"
-if [ "$TOP_COUNT" -eq 1 ] && [ -d "$(find "$temporary/extracted" -mindepth 1 -maxdepth 1)" ]; then
-  sudo mv "$(find "$temporary/extracted" -mindepth 1 -maxdepth 1)" "$APP_DIR"
-else
-  sudo mv "$temporary/extracted" "$APP_DIR"
+if [ "$TOP_COUNT" -eq 1 ] && [ ! -d "$app_root/bin" ] && [ -d "$(find "$temporary/extracted" -mindepth 1 -maxdepth 1)" ]; then
+  app_root="$(find "$temporary/extracted" -mindepth 1 -maxdepth 1)"
 fi
+EXEC_CMD=""
+for binary in antigravity-ide antigravity; do
+  if [ -f "$app_root/$binary" ] && [ -x "$app_root/$binary" ]; then
+    EXEC_CMD="$APP_DIR/$binary"
+    break
+  fi
+done
+if [ -z "$EXEC_CMD" ]; then
+  echo '安装包中缺少 Antigravity 图形启动程序。' >&2
+  exit 1
+fi
+sudo install -d -m 0755 /opt/cage-ai-desktops
+sudo rm -rf "$APP_DIR"
+sudo mv "$app_root" "$APP_DIR"
 sudo chmod -R a+rX "$APP_DIR"
 if [ -f "$APP_DIR/chrome-sandbox" ] && [ ! -L "$APP_DIR/chrome-sandbox" ]; then
   sudo chown root:root "$APP_DIR/chrome-sandbox"
   sudo chmod 4755 "$APP_DIR/chrome-sandbox"
-fi
-EXEC_CMD="$(find "$APP_DIR" -maxdepth 2 -type f \( -name 'antigravity' -o -name 'antigravity-ide' \) -perm -u+x | head -n 1)"
-if [ -z "$EXEC_CMD" ]; then
-  EXEC_CMD="${APP_DIR}/antigravity"
 fi
 APP_VER="$(/usr/bin/python3 - "$APP_DIR" "$DOWNLOAD_URL" <<'CAGE_AG_VER'
 import json, pathlib, re, sys

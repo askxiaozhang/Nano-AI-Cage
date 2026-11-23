@@ -102,6 +102,15 @@ CAGE_AI_META
 )
 exec_cmd="${launch_info[0]:-}"
 is_electron="${launch_info[1]:-1}"
+# Older Antigravity installs recorded the short-lived CLI wrapper.
+if [[ "$app_id" == antigravity ]]; then
+  case "$exec_cmd" in
+    /opt/cage-ai-desktops/antigravity/bin/antigravity|/opt/cage-ai-desktops/antigravity/bin/antigravity-ide)
+      gui="/opt/cage-ai-desktops/antigravity/${exec_cmd##*/}"
+      if [[ -x "$gui" ]]; then exec_cmd="$gui"; fi
+      ;;
+  esac
+fi
 if [ -z "$exec_cmd" ]; then
   echo "未能找到应用启动命令，请重新安装或修复安装。" >&2
   exit 1

@@ -34,6 +34,7 @@ type maintenanceProxy struct {
 	ctx         context.Context
 	dial        func(context.Context, string, string) (net.Conn, error)
 	transport   *http.Transport
+	extraHosts  map[string]bool
 	mu          sync.Mutex
 	connections map[net.Conn]bool
 	closed      bool
@@ -52,11 +53,39 @@ func maintenanceDestination(address string, connect bool) bool {
 	}
 	host = strings.ToLower(host)
 	switch host {
-	case "mirrors.nju.edu.cn", "mirrors.ustc.edu.cn", "cdn.npmmirror.com", "api.snapcraft.io", "storage.snapcraftcontent.com", "canonical-lgw01.cdn.snapcraftcontent.com", "canonical-lcy01.cdn.snapcraftcontent.com", "canonical-lcy02.cdn.snapcraftcontent.com", "canonical-bos01.cdn.snapcraftcontent.com", "cloudfront.cdn.snapcraftcontent.com", "codeload.github.com":
+	case "mirrors.nju.edu.cn", "mirrors.ustc.edu.cn", "cdn.npmmirror.com",
+		"api.snapcraft.io", "storage.snapcraftcontent.com",
+		"canonical-lgw01.cdn.snapcraftcontent.com", "canonical-lcy01.cdn.snapcraftcontent.com",
+		"canonical-lcy02.cdn.snapcraftcontent.com", "canonical-bos01.cdn.snapcraftcontent.com",
+		"cloudfront.cdn.snapcraftcontent.com",
+		"codeload.github.com", "api.github.com", "raw.githubusercontent.com",
+		"antigravity.google", "storage.googleapis.com", "edgedl.me.gvt1.com", "redirector.gvt1.com",
+		"persistent.oaistatic.com",
+		"downloads.cursor.com", "api2.cursor.sh", "downloader.cursor.sh",
+		"windsurf-stable.codeiumdata.com":
 		return connect
 	}
 	return maintenanceOrigins[host]
 }
+
+func (p *maintenanceProxy) allowedDestination(address string, connect bool) bool {
+	if maintenanceDestination(address, connect) {
+		return true
+	}
+	if !connect || len(p.extraHosts) == 0 {
+		return false
+	}
+	host, port, err := net.SplitHostPort(address)
+	if err != nil || port != "443" {
+		return false
+	}
+	host = strings.ToLower(host)
+	if net.ParseIP(host) != nil || host == "localhost" || strings.HasSuffix(host, ".local") {
+		return false
+	}
+	return p.extraHosts[host]
+}
+
 func (p *maintenanceProxy) track(conn net.Conn) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -84,7 +113,7 @@ func (p *maintenanceProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodConnect {
-		if !maintenanceDestination(r.Host, true) {
+		if !p.allowedDestination(r.Host, true) {
 			http.Error(w, "Not a Cage software source", 403)
 			return
 		}
@@ -132,7 +161,7 @@ func (p *maintenanceProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Port() == "" {
 		address = net.JoinHostPort(r.URL.Hostname(), "80")
 	}
-	if r.URL.Scheme != "http" || r.URL.User != nil || !maintenanceDestination(address, false) {
+	if r.URL.Scheme != "http" || r.URL.User != nil || !p.allowedDestination(address, false) {
 		http.Error(w, "Not a Cage software source", 403)
 		return
 	}
@@ -201,18 +230,22 @@ func StartGuestServices(ctx context.Context, configPath string, stdout, stderr i
 	if err != nil {
 		return err
 	}
-	return runMaintenanceScript(ctx, configPath, cfg, "export CAGE_DISPLAY_SCALE="+scale+"\n"+cfg.StartScript(), stdout, stderr)
+	return runMaintenanceScript(ctx, configPath, cfg, "export CAGE_DISPLAY_SCALE="+scale+"\n"+cfg.StartScript(), nil, stdout, stderr)
 }
 
 func RunMaintenanceScript(ctx context.Context, configPath, script string, stdout, stderr io.Writer) error {
+	return RunMaintenanceScriptWithHosts(ctx, configPath, script, nil, stdout, stderr)
+}
+
+func RunMaintenanceScriptWithHosts(ctx context.Context, configPath, script string, extraHosts []string, stdout, stderr io.Writer) error {
 	cfg, err := cage.Load(configPath)
 	if err != nil {
 		return err
 	}
-	return runMaintenanceScript(ctx, configPath, cfg, cfg.GuestProfile.Linux(script), stdout, stderr)
+	return runMaintenanceScript(ctx, configPath, cfg, cfg.GuestProfile.Linux(script), extraHosts, stdout, stderr)
 }
 
-func runMaintenanceScript(ctx context.Context, configPath string, cfg cage.Config, script string, stdout, stderr io.Writer) error {
+func runMaintenanceScript(ctx context.Context, configPath string, cfg cage.Config, script string, extraHosts []string, stdout, stderr io.Writer) error {
 	profile := filepath.Dir(configPath)
 	if err := cfg.RequireManagedProxy(profile); err != nil {
 		return err
@@ -229,7 +262,14 @@ func runMaintenanceScript(ctx context.Context, configPath string, cfg cage.Confi
 	if err != nil {
 		return err
 	}
-	proxy := &maintenanceProxy{token: randomToken(), ctx: ctx, dial: egress.DialContext, connections: make(map[net.Conn]bool)}
+	allowedExtra := make(map[string]bool, len(extraHosts))
+	for _, h := range extraHosts {
+		h = strings.ToLower(strings.TrimSpace(h))
+		if h != "" {
+			allowedExtra[h] = true
+		}
+	}
+	proxy := &maintenanceProxy{token: randomToken(), ctx: ctx, dial: egress.DialContext, extraHosts: allowedExtra, connections: make(map[net.Conn]bool)}
 	proxy.transport = &http.Transport{Proxy: nil, DialContext: egress.DialContext, DisableKeepAlives: true}
 	server := &http.Server{Handler: proxy, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = server.Serve(listener) }()

@@ -403,19 +403,26 @@ printf 'Cursor 已安装。\n'
 	case "antigravity-tarball":
 		body = `
 printf '正在从 antigravity.google 解析最新官方 Linux 下载地址…\n'
-cage_curl_download "$temporary/download.html" --proto '=https' --proto-redir '=https' -fSL --connect-timeout 20 'https://antigravity.google/download?os=linux' -o "$temporary/download.html"
+cage_curl_download "$temporary/download.html" --proto '=https' --proto-redir '=https' --compressed -fSL --connect-timeout 20 'https://antigravity.google/download' -o "$temporary/download.html" || { echo '无法访问 Antigravity 官方下载页面；请检查环境的网络和代理设置，并查看上方 HTTP 错误后重试。' >&2; exit 1; }
 DOWNLOAD_URL="$(/usr/bin/python3 - "$temporary/download.html" "$ARCH" <<'CAGE_AG_URL'
 import re, sys, urllib.request
 html = open(sys.argv[1], encoding="utf-8", errors="ignore").read()
 arch = sys.argv[2]
-arch_pat = r'(?:linux-arm64|linux-arm|linux-aarch64)' if arch == 'arm64' else r'(?:linux-x64|linux-amd64|linux-x86_64)'
-url_re = re.compile(r'https://[^"\'\s<>]+/' + arch_pat + r'/Antigravity\.tar\.gz')
+arch_pat = r'(?:linux-arm|linux-arm64|linux-aarch64)' if arch == 'arm64' else r'(?:linux-x64|linux-amd64|linux-x86_64)'
+# Prefer Antigravity IDE (edgedl.me.gvt1.com), fall back to Antigravity App (storage.googleapis.com).
+patterns = [
+    re.compile(r'https://edgedl\.me\.gvt1\.com/[^"\'\s<>]+/' + arch_pat + r'/Antigravity(?:%20IDE)?\.tar\.gz'),
+    re.compile(r'https://storage\.googleapis\.com/antigravity-public/antigravity-hub/[^"\'\s<>]+/' + arch_pat + r'/Antigravity\.tar\.gz'),
+]
 def find_in(text):
-    m = url_re.search(text)
-    return m.group(0) if m else ''
+    for pat in patterns:
+        m = pat.search(text)
+        if m:
+            return m.group(0)
+    return ''
 found = find_in(html)
 if not found:
-    scripts = re.findall(r'src=["\']([^"\']*?(?:main|chunk)[^"\']*?\.js)["\']', html)
+    scripts = re.findall(r'src=["\']([^"\']*?(?:main|chunk|app)[^"\']*?\.js)["\']', html)
     for s in scripts[:12]:
         js_url = s if s.startswith('http') else 'https://antigravity.google/' + s.lstrip('/')
         try:
@@ -447,19 +454,28 @@ else
   sudo mv "$temporary/extracted" "$APP_DIR"
 fi
 sudo chmod -R a+rX "$APP_DIR"
-EXEC_CMD="$(find "$APP_DIR" -maxdepth 2 -type f -name 'antigravity' -perm -u+x | head -n 1)"
+if [ -f "$APP_DIR/chrome-sandbox" ] && [ ! -L "$APP_DIR/chrome-sandbox" ]; then
+  sudo chown root:root "$APP_DIR/chrome-sandbox"
+  sudo chmod 4755 "$APP_DIR/chrome-sandbox"
+fi
+EXEC_CMD="$(find "$APP_DIR" -maxdepth 2 -type f \( -name 'antigravity' -o -name 'antigravity-ide' \) -perm -u+x | head -n 1)"
 if [ -z "$EXEC_CMD" ]; then
   EXEC_CMD="${APP_DIR}/antigravity"
 fi
-APP_VER="$(/usr/bin/python3 - "$APP_DIR" <<'CAGE_AG_VER'
-import json, pathlib, sys
+APP_VER="$(/usr/bin/python3 - "$APP_DIR" "$DOWNLOAD_URL" <<'CAGE_AG_VER'
+import json, pathlib, re, sys
 for p in [pathlib.Path(sys.argv[1]) / 'resources/app/package.json', pathlib.Path(sys.argv[1]) / 'package.json']:
     if p.is_file():
         try:
-            print(json.loads(p.read_text(encoding='utf-8')).get('version', ''))
-            sys.exit(0)
+            v = json.loads(p.read_text(encoding='utf-8')).get('version', '')
+            if v:
+                print(v)
+                sys.exit(0)
         except Exception:
             pass
+m = re.search(r'/([0-9]+\.[0-9]+\.[0-9]+)(?:-[0-9]+)?/', sys.argv[2])
+if m:
+    print(m.group(1))
 CAGE_AG_VER
 )"
 write_meta "tarball" "" "$EXEC_CMD" "${APP_VER:-2.x}" "$APP_DIR"

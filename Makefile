@@ -55,6 +55,13 @@ ifeq ($(GOOS),darwin)
 	codesign -f --entitlements third_party/lima/vz.entitlements -s - _output/bin/cage
 endif
 
+# Fast Go-only rebuild for local development (always re-applies VZ entitlements on macOS).
+cage-fast:
+	$(GO_BUILD) -o _output/bin/cage$(EXE) ./cmd/cage
+ifeq ($(GOOS),darwin)
+	codesign -f --entitlements third_party/lima/vz.entitlements -s - _output/bin/cage
+endif
+
 cage-ui:
 	npm --prefix ui ci --no-audit --no-fund
 	npm run --prefix ui build
@@ -73,7 +80,7 @@ dmg:
 	hdiutil create -volname "Nano-AI-CAGE" -srcfolder "$$stage" -ov -format UDZO "$$dmg"; \
 	printf 'Built DMG: %s\n' "$$dmg"
 
-.PHONY: cage cage-ui dmg cage-windows package-windows cage-linux package-linux check-linux
+.PHONY: cage cage-fast cage-ui dmg cage-windows package-windows cage-linux package-linux check-linux
 cage-linux:
 	bash scripts/build-linux.sh
 

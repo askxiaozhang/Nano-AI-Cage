@@ -485,7 +485,13 @@ func (s *Server) aiDesktopAction(w http.ResponseWriter, r *http.Request) {
 			}()
 			s.setMessage(fmt.Sprintf("正在下载并安装 %s，可在操作详情查看进度…", app.Name))
 			script := cage.AIDesktopInstallScript(app)
-			if err := RunMaintenanceScript(s.operationContext(), s.configPath, script, s.jobs.execution(), s.jobs.execution()); err != nil {
+			var extraHosts []string
+			for _, raw := range []string{app.DownloadURL, app.ARM64URL} {
+				if parsed, err := url.Parse(raw); err == nil && parsed.Scheme == "https" && parsed.Hostname() != "" {
+					extraHosts = append(extraHosts, parsed.Hostname())
+				}
+			}
+			if err := RunMaintenanceScriptWithHosts(s.operationContext(), s.configPath, script, extraHosts, s.jobs.execution(), s.jobs.execution()); err != nil {
 				return err
 			}
 			// Auto-pin installed apps to the left sidebar so the user can launch them immediately.

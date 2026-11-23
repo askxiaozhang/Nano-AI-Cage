@@ -83,6 +83,7 @@ export const RemoteView = forwardRef(function RemoteView(
       );
     };
     const desktopPrefix = vncPrefix || (desktop ? "/claude-desktop" : "");
+    const isolatedDisplay = Boolean(vncPrefix);
     api(`${desktopPrefix}/vnc-credentials`)
       .then(({ password, display_scale, dynamic_scale, pixel_wheel }) => {
         if (disposed) return;
@@ -100,6 +101,7 @@ export const RemoteView = forwardRef(function RemoteView(
               : undefined,
           },
         );
+        if (isolatedDisplay) client.cageUseTigerVNCClipboard();
         rfb.current = client;
         // A Linux guest takes key events as sent; see guest-keys.mjs.
         keys = guestKeys(client.sendKey.bind(client));
@@ -136,7 +138,7 @@ export const RemoteView = forwardRef(function RemoteView(
           resizeObserver.observe(container);
           unwatchDensity = watchPixelRatio(resize);
           resize();
-          const preparePaste = () => {
+          const preparePaste = isolatedDisplay ? undefined : () => {
             const id = current.current.tabId;
             return prepareClipboardPaste(desktop ? "desktop" : "browser", id, {
               valid: () => !disposed && current.current.visible && current.current.tabId === id,
@@ -148,13 +150,15 @@ export const RemoteView = forwardRef(function RemoteView(
             sendKey: (...key) => client.sendKey(...key),
             focus: () => client.focus(),
             pasteText: text => {
-              if (desktop || current.current.systemClipboard) return client.cagePasteText(text);
+              const id = current.current.tabId;
+              if (desktop || current.current.systemClipboard) return client.cagePasteText(text,
+                () => !disposed && current.current.visible && current.current.tabId === id);
               const prepared = preparePaste();
               return client.cageRunInput(() => prepared.send({ text })).finally(() => prepared.dispose());
             },
             runKeyAction: action => client.cageRunInput(action),
           }, container, {
-            systemClipboard: () => current.current.systemClipboard,
+            systemClipboard: () => !isolatedDisplay && current.current.systemClipboard,
             copyText: !desktop
               ? (_sendCopy, valid, { id, context, key }) => {
                 if (current.current.systemClipboard !== false) return undefined;
@@ -180,6 +184,7 @@ export const RemoteView = forwardRef(function RemoteView(
               return client.cagePasteContent(content,
                 (payload) => {
                   if (!valid()) throw new Error("输入目标已切换，请重新粘贴图片");
+                  if (isolatedDisplay) throw new Error("独立会话目前支持粘贴文本");
                   return payload.files || payload.fileSelection
                     ? sendFiles(payload, desktop ? "desktop" : "browser", id, { valid })
                     : sendImage(payload, desktop ? "desktop" : "browser", id, { prepared });
@@ -187,6 +192,7 @@ export const RemoteView = forwardRef(function RemoteView(
             },
             insertText: (text) => {
               if (desktop) {
+                if (isolatedDisplay) return client.cagePasteText(text, () => !disposed && current.current.visible);
                 if (!window.cageSharedClipboardActive) return client.cagePasteText(text);
                 return client.cageRunInput(async () => {
                   const valid = () => !disposed && current.current.visible;
@@ -206,7 +212,7 @@ export const RemoteView = forwardRef(function RemoteView(
                 return api("/browser/insert-text", { id, text });
               });
             },
-            insertComposition: (id, value) => client.cageRunInput(async () => {
+            insertComposition: isolatedDisplay ? undefined : (id, value) => client.cageRunInput(async () => {
               if (value.mode !== "cancel" && (disposed || !current.current.visible ||
                   (desktop ? "desktop" : current.current.tabId) !== id))
                 throw new Error("输入位置已切换，请重新输入");
@@ -216,7 +222,7 @@ export const RemoteView = forwardRef(function RemoteView(
               return result;
             }),
             tabId: () => desktop ? "desktop" : current.current.tabId,
-            caretRect: async (session) => {
+            caretRect: isolatedDisplay ? undefined : async (session) => {
               const id = desktop ? "desktop" : current.current.tabId;
               const value = await api("/input", { target: desktop ? "desktop" : "browser", id, mode: "status", session });
               return !disposed && current.current.visible &&

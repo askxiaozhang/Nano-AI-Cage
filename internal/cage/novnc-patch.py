@@ -7,7 +7,7 @@ root = Path(sys.argv[1]) if len(sys.argv) > 1 else Path('/usr/share/novnc')
 path = root / 'core/rfb.js'
 source = path.read_text()
 original = path.with_name('rfb.cage-original.js')
-if 'cagePasteText(text)' in source:
+if '    cagePasteText(' in source:
     if not original.exists():
         raise SystemExit('Restore the package rfb.js before applying a new clipboard patch')
     source = original.read_text()
@@ -98,30 +98,71 @@ replace_once('    clipboardPasteFrom(text) {', '''    // Cage: serialize the cli
             if (!valid()) throw new Error('Input target changed');
             if (value.png || value.files || value.fileSelection) return this._cageRunInput(() => pasteImage(value));
             if (pasteText) return this._cageRunInput(() => pasteText(value.text || ''));
-            return this._cagePasteText(value.text || '');
+            return this._cagePasteText(value.text || '', valid);
         });
     }
 
-    cagePasteText(text) {
-        return this._cageQueueInput(() => this._cagePasteText(text));
+    cagePasteText(text, valid) {
+        return this._cageQueueInput(() => this._cagePasteText(text, valid));
     }
 
-    _cagePasteText(text) {
+    async _cagePasteText(text, valid = () => true) {
+        if (this._cageEagerClipboard) {
+            await this._cageWaitForClipboard();
+        }
+        if (!valid()) throw new Error('粘贴位置已切换，请重新粘贴');
         return new Promise((resolve, reject) => {
             if (this._rfbConnectionState !== 'connected' || this._viewOnly ||
                 !this._supportsFence ||
                 !this._clipboardServerCapabilitiesActions[extendedClipboardActionNotify] ||
                 !this._clipboardServerCapabilitiesActions[extendedClipboardActionProvide]) {
-                reject(new Error('Clipboard transport is not ready'));
+                reject(new Error('当前画面连接无法粘贴文本，请稍后重试'));
                 return;
             }
             const id = 'cage-paste-' + (this._cagePasteSequence = (this._cagePasteSequence || 0) + 1);
             const timer = setTimeout(() => {
                 if (this._cagePasteJob?.id === id) this._cagePasteJob = null;
-                reject(new Error('Remote application did not accept the paste'));
+                reject(new Error('客机未确认粘贴，请检查输入框状态后重试'));
             }, 4000);
-            this._cagePasteJob = {id, timer, resolve, phase: 'data'};
-            this.clipboardPasteFrom(text);
+            this._cagePasteJob = {id, timer, resolve, phase: this._cageEagerClipboard ? 'fence' : 'data'};
+            if (this._cageEagerClipboard) {
+                // Xtigervnc can wait for an X11 selection request before
+                // requesting the data. Supply it before sending Ctrl+V.
+                this._clipboardText = text;
+                RFB.messages.extendedClipboardNotify(this._sock, [extendedClipboardFormatText]);
+                RFB.messages.extendedClipboardProvide(this._sock, [extendedClipboardFormatText], [text]);
+                RFB.messages.clientFence(this._sock, (1 << 31) | 1, id);
+            } else {
+                this.clipboardPasteFrom(text);
+            }
+        });
+    }
+
+    cageUseTigerVNCClipboard() {
+        this._cageEagerClipboard = true;
+    }
+
+    _cageWaitForClipboard() {
+        const ready = () => this._supportsFence &&
+            this._clipboardServerCapabilitiesFormats[extendedClipboardFormatText] &&
+            this._clipboardServerCapabilitiesActions[extendedClipboardActionNotify] &&
+            this._clipboardServerCapabilitiesActions[extendedClipboardActionProvide];
+        if (this._rfbConnectionState !== 'connected')
+            return Promise.reject(new Error('画面连接已断开，请重新粘贴'));
+        if (ready()) return Promise.resolve();
+        return new Promise((resolve, reject) => {
+            const finish = (error) => {
+                clearTimeout(timer);
+                this.removeEventListener('cage-clipboard-capability', check);
+                this.removeEventListener('disconnect', disconnected);
+                if (error) reject(error);
+                else resolve();
+            };
+            const check = () => { if (ready()) finish(); };
+            const disconnected = () => finish(new Error('画面连接已断开，请重新粘贴'));
+            const timer = setTimeout(() => finish(new Error('画面尚未完成剪贴板协商，请稍后重试')), 4000);
+            this.addEventListener('cage-clipboard-capability', check);
+            this.addEventListener('disconnect', disconnected);
         });
     }
 
@@ -159,6 +200,12 @@ replace_once('''    _sendMouse(x, y, mask) {''', '''    _sendMouse(x, y, mask) {
 
     _cageSendMouse(x, y, mask) {''')
 provide = 'RFB.messages.extendedClipboardProvide(this._sock, [extendedClipboardFormatText], [this._clipboardText]);'
+caps = 'RFB.messages.extendedClipboardCaps(this._sock, clientActions, {extendedClipboardFormatText: 0});'
+replace_once(caps, caps + '''
+                if (this._cageEagerClipboard) this.dispatchEvent(new Event('cage-clipboard-capability'));''')
+replace_once('        this._supportsFence = true;', '''        const firstFence = !this._supportsFence;
+        this._supportsFence = true;
+        if (firstFence && this._cageEagerClipboard) this.dispatchEvent(new Event('cage-clipboard-capability'));''')
 replace_once(provide, provide + '''
                         if (this._cagePasteJob?.phase === 'data') {
                             this._cagePasteJob.phase = 'fence';

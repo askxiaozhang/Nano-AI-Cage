@@ -503,9 +503,9 @@ export function installRemoteInput(
         pending--;
         say(pending ? "正在粘贴…" : "已粘贴");
       },
-      () => {
+      (error) => {
         pending--;
-        say("粘贴连接未就绪，请重新连接画面后重试");
+        say(error?.message || "粘贴未完成，请稍后重试");
       },
     );
   };

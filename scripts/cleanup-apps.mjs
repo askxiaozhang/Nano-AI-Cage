@@ -5,7 +5,9 @@ import { lstat, readdir, realpath, rm } from "node:fs/promises";
 import path from "node:path";
 import { isMainModule } from "./is-main-module.mjs";
 
-const bundleID = "io.github.lee-xeo.claude-cage";
+// Must match bundle_id in scripts/build-app.sh: cleanup only removes bundles
+// that belong to this app, so a stale id here refuses the build's own output.
+const bundleID = "io.github.askxiaozhang.nano-ai-cage";
 function isCage(bundle) {
   try {
     return (

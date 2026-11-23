@@ -15,7 +15,7 @@ import test from "node:test";
 import { execFileSync, spawn } from "node:child_process";
 import { cleanupApps } from "./cleanup-apps.mjs";
 
-const cageID = "io.github.lee-xeo.claude-cage";
+const cageID = "io.github.askxiaozhang.nano-ai-cage";
 test("cleanup preserves a Cage executable still in use", { skip: process.platform !== "darwin" }, async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "cage-cleanup-running-"));
   let child;

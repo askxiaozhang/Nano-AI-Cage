@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 	_ "time/tzdata"
 
@@ -29,6 +31,15 @@ type Config struct {
 	Locale          string                `json:"locale"`
 	BrowserLanguage string                `json:"browser_language"`
 	ExitPolicy      ExitPolicy            `json:"exit_policy"`
+	// LANAccess lets the guest reach this machine's own local networks. It is
+	// off unless the user turns it on: the environment's isolation is what the
+	// rest of this package checks, and this is the one deliberate opening.
+	LANAccess bool `json:"lan_access,omitempty"`
+	// LANSubnets names local networks the user can reach beyond the ones this
+	// computer's interfaces reveal, e.g. a lab network behind the same router.
+	// One comma-separated string keeps Config comparable; every entry is an
+	// IPv4 network in CIDR form.
+	LANSubnets string `json:"lan_subnets,omitempty"`
 }
 
 func DefaultConfig() Config {
@@ -59,6 +70,37 @@ func Load(path string) (Config, error) {
 	return c, err
 }
 
+// LANEntries splits the named local networks on commas and spaces.
+func LANEntries(list string) []string {
+	return strings.FieldsFunc(list, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' || r == '\n' })
+}
+
+// LANPrefixes parses the named local networks. Validate has already refused
+// anything that would not parse.
+func (c Config) LANPrefixes() []netip.Prefix {
+	var prefixes []netip.Prefix
+	for _, entry := range LANEntries(c.LANSubnets) {
+		if prefix, err := netip.ParsePrefix(entry); err == nil {
+			prefixes = append(prefixes, prefix.Masked())
+		}
+	}
+	return prefixes
+}
+
+// ParseLANSubnet reads one named local network: IPv4, private, and a network
+// rather than a single host.
+func ParseLANSubnet(entry string) (netip.Prefix, error) {
+	prefix, err := netip.ParsePrefix(strings.TrimSpace(entry))
+	if err != nil {
+		return netip.Prefix{}, errors.New("局域网网段需为 CIDR 形式，例如 192.168.70.0/24")
+	}
+	prefix = prefix.Masked()
+	if !prefix.Addr().Is4() || !prefix.Addr().IsPrivate() || prefix.Bits() > 24 {
+		return netip.Prefix{}, errors.New("局域网网段需为私有 IPv4 网段，且不小于 /24")
+	}
+	return prefix, nil
+}
+
 func (c Config) Validate() error {
 	u, err := url.Parse(c.ProxyURL)
 	if err != nil || u == nil {
@@ -81,6 +123,11 @@ func (c Config) Validate() error {
 	d, err := url.Parse(c.DNSURL)
 	if err != nil || d.Scheme != "https" || d.Hostname() == "" || d.User != nil || d.Fragment != "" {
 		return errors.New("DNS URL must be an HTTPS DNS-over-HTTPS endpoint")
+	}
+	for _, entry := range LANEntries(c.LANSubnets) {
+		if _, err := ParseLANSubnet(entry); err != nil {
+			return err
+		}
 	}
 	if c.Timezone == "" || c.Timezone == "Local" {
 		return errors.New("timezone must be an explicit IANA name, e.g. Etc/UTC")

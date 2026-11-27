@@ -89,6 +89,7 @@ export function SettingsPanel({
     "auto_timezone",
     "auto_language",
     "exit_policy",
+    "lan_access",
   ].some((k) =>
     k === "exit_policy"
       ? JSON.stringify(canonicalExitPolicy(draft[k])) !==
@@ -324,6 +325,34 @@ export function SettingsPanel({
                     probing={probing}
                   />
                 </section>
+                <label className="toggle-row">
+                  <span>
+                    <strong>{tr("允许访问局域网")}</strong>
+                    <small>
+                      {tr("开启后，Cage 内的程序可以直连这台电脑所在网段的设备，例如 NAS、打印机和内网服务。这台电脑自身的地址仍然被拦截，公网流量继续走代理；修改后需要重启环境生效。")}
+                    </small>
+                  </span>
+                  <input
+                    role="switch"
+                    type="checkbox"
+                    checked={Boolean(draft.lan_access)}
+                    onChange={(e) => update("lan_access", e.target.checked)}
+                  />
+                </label>
+                {draft.lan_access && (
+                  <label>
+                    {tr("额外的局域网网段")}
+                    <input
+                      value={draft.lan_subnets ?? ""}
+                      onChange={(e) => update("lan_subnets", e.target.value)}
+                      placeholder="192.168.70.0/24, 192.168.71.0/24"
+                      spellCheck="false"
+                    />
+                    <small className="field-help">
+                      {tr("用逗号分隔，填本机网卡之外的网段，例如同一路由器下的实验网。本机所在网段已自动包含。")}
+                    </small>
+                  </label>
+                )}
               </>
             )}
             {section === "region" && (

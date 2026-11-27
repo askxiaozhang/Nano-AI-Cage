@@ -297,3 +297,132 @@ func TestProxyHostnameCannotUseHostResolver(t *testing.T) {
 		t.Fatal("proxy hostname must not trigger bootstrap DNS")
 	}
 }
+
+// The LAN opt-in is the only path that leaves directly instead of through the
+// proxy, and only for addresses on the networks this machine sits on.
+func TestLANOptInDialsLocally(t *testing.T) {
+	local := localSubnetAddress(t)
+	c := DefaultConfig()
+	c.LANAccess = true
+	e, err := NewEgress(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !e.public.LAN {
+		t.Fatal("LAN opt-in not applied to the policy")
+	}
+	recorded := make(chan string, 1)
+	e.connect = dialerFunc(func(_ context.Context, network, addr string) (net.Conn, error) {
+		recorded <- network + " " + addr
+		client, server := net.Pipe()
+		server.Close()
+		return client, nil
+	})
+	conn, handled, err := e.dialLAN(context.Background(), local)
+	if !handled || err != nil || conn == nil {
+		t.Fatalf("LAN destination not dialled locally: handled=%v err=%v", handled, err)
+	}
+	conn.Close()
+	if got := <-recorded; got != "tcp "+local {
+		t.Fatalf("dialled %q", got)
+	}
+	if _, handled, _ := e.dialLAN(context.Background(), "1.1.1.1:443"); handled {
+		t.Fatal("public destination took the LAN path")
+	}
+	if _, handled, _ := e.dialLAN(context.Background(), "10.255.254.253:80"); handled {
+		t.Fatal("private destination outside the local networks took the LAN path")
+	}
+	off, err := NewEgress(DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, handled, _ := off.dialLAN(context.Background(), local); handled {
+		t.Fatal("LAN path without the opt-in")
+	}
+	if off.Allows("tcp", netip.MustParseAddrPort(local)) {
+		t.Fatal("LAN allowed without the opt-in")
+	}
+	if !e.Allows("tcp", netip.MustParseAddrPort(local)) {
+		t.Fatal("LAN refused with the opt-in")
+	}
+}
+
+type dialerFunc func(context.Context, string, string) (net.Conn, error)
+
+func (f dialerFunc) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	return f(ctx, network, addr)
+}
+
+// localSubnetAddress is an address inside one of this machine's interface
+// subnets that is not an interface address itself.
+func localSubnetAddress(t *testing.T) string {
+	t.Helper()
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		t.Skip("no interface information")
+	}
+	for _, addr := range addrs {
+		n, ok := addr.(*net.IPNet)
+		if !ok || n.IP.IsLoopback() || n.IP.To4() == nil {
+			continue
+		}
+		ones, bits := n.Mask.Size()
+		if ones == 0 || ones >= bits {
+			continue
+		}
+		ip := n.IP.To4()
+		host := uint32(ip[0])<<24 | uint32(ip[1])<<16 | uint32(ip[2])<<8 | uint32(ip[3])
+		candidate := host&^(1<<(32-ones)-1) | 1
+		if candidate == host {
+			candidate = host | 2
+		}
+		return netip.AddrFrom4([4]byte{byte(candidate >> 24), byte(candidate >> 16), byte(candidate >> 8), byte(candidate)}).String() + ":80"
+	}
+	t.Skip("no non-loopback IPv4 interface")
+	return ""
+}
+
+// Named local networks are reached beyond the interfaces this machine reveals,
+// and never the machine's own addresses.
+func TestNamedLANSubnetsReachable(t *testing.T) {
+	c := DefaultConfig()
+	c.LANAccess = true
+	c.LANSubnets = "192.168.70.0/24, 192.168.71.0/24"
+	e, err := NewEgress(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, addr := range []string{"192.168.70.1:80", "192.168.71.69:18766"} {
+		if !e.Allows("tcp", netip.MustParseAddrPort(addr)) {
+			t.Errorf("named LAN %s refused", addr)
+		}
+		if _, handled, _ := e.dialLAN(context.Background(), addr); !handled {
+			t.Errorf("named LAN %s did not take the direct path", addr)
+		}
+	}
+	if e.Allows("tcp", netip.MustParseAddrPort("192.168.72.1:80")) {
+		t.Error("a network nobody named was allowed")
+	}
+	// The machine's own address stays refused even inside a named network's range.
+	addrs, err := net.InterfaceAddrs()
+	if err == nil {
+		for _, addr := range addrs {
+			if n, ok := addr.(*net.IPNet); ok && n.IP.To4() != nil && !n.IP.IsLoopback() {
+				if e.Allows("tcp", netip.AddrPortFrom(netip.MustParseAddr(n.IP.String()), 80)) {
+					t.Errorf("own address %s reachable", n.IP)
+				}
+			}
+		}
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("valid named networks refused: %v", err)
+	}
+	c.LANSubnets = "8.8.8.0/24"
+	if err := c.Validate(); err == nil {
+		t.Fatal("public network accepted as a LAN")
+	}
+	c.LANSubnets = "192.168.70.5/32"
+	if err := c.Validate(); err == nil {
+		t.Fatal("single host accepted as a LAN")
+	}
+}

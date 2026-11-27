@@ -30,6 +30,14 @@ const resolvedFor = 30 * time.Minute
 type Policy struct {
 	// Open turns isolation off (AGENT_VM_UNSAFE_OPEN_NETWORK=1).
 	Open bool
+	// LAN reaches this machine's own local networks (the subnets its
+	// interfaces are on) while this machine's addresses stay refused. Cage
+	// sets it when the user allows the environment to reach the LAN.
+	LAN bool
+	// LANNets are the local networks the user named beyond the ones this
+	// machine's interfaces reveal, for a LAN that is routed rather than
+	// attached.
+	LANNets []netip.Prefix
 	// Allow are reachable whatever else: an address or network, every port
 	// when Port is 0.
 	Allow []Rule
@@ -193,6 +201,13 @@ func (p *Policy) allows(network string, dst netip.AddrPort, interfaceAddrs func(
 			return true
 		}
 	}
+	// The LAN opt-in reaches the networks this machine sits on, never the
+	// machine itself: its own addresses are refused just below, and the
+	// netstack's gateway (which forwards this machine's services) is not one
+	// of its subnets.
+	if p.LAN && lanAddress(a) && offHost(a, interfaceAddrs) && (onLocalSubnet(a, interfaceAddrs) || p.inLANNets(a)) {
+		return true
+	}
 	if internal(a) || !offHost(a, interfaceAddrs) {
 		return false
 	}
@@ -203,6 +218,54 @@ func (p *Policy) allows(network string, dst netip.AddrPort, interfaceAddrs func(
 	defer p.mu.Unlock()
 	until, ok := p.resolved[a]
 	return ok && time.Now().Before(until)
+}
+
+// lanAddress is what a LAN opt-in may reach: the private IPv4 space. Loopback,
+// link-local and the cloud metadata address stay outside it.
+func lanAddress(a netip.Addr) bool {
+	return a.Is4() && a.IsPrivate()
+}
+
+// inLANNets reports whether a is inside one of the networks the user named.
+func (p *Policy) inLANNets(a netip.Addr) bool {
+	for _, prefix := range p.LANNets {
+		if prefix.Contains(a) {
+			return true
+		}
+	}
+	return false
+}
+
+// onLocalSubnet reports whether a falls inside one of this machine's interface
+// subnets (not a host route), so an opted-in guest reaches the networks the
+// machine is attached to instead of the whole private address space.
+func onLocalSubnet(a netip.Addr, interfaceAddrs func() ([]net.Addr, error)) bool {
+	addrs, err := interfaceAddrs()
+	if err != nil {
+		return false
+	}
+	for _, addr := range addrs {
+		n, ok := addr.(*net.IPNet)
+		if !ok || n == nil {
+			continue
+		}
+		ones, bits := n.Mask.Size()
+		if bits == 0 || ones == 0 || ones >= bits {
+			continue
+		}
+		ip, ok := netip.AddrFromSlice(n.IP)
+		if !ok {
+			continue
+		}
+		ip = ip.Unmap().WithZone("")
+		if ip.Is4() != a.Is4() {
+			continue
+		}
+		if prefix := netip.PrefixFrom(ip, ones); prefix.IsValid() && prefix.Contains(a) {
+			return true
+		}
+	}
+	return false
 }
 
 // Each new flow needs a current interface list. A public address can become

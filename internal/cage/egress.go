@@ -29,7 +29,13 @@ type Egress struct {
 	dnsURL   string
 	client   *http.Client
 	public   netguard.Policy
-	connect  proxy.ContextDialer
+	connect  contextDialer
+}
+
+// contextDialer is how every outbound connection starts: the host's dialer in
+// production, a recorder in tests.
+type contextDialer interface {
+	DialContext(context.Context, string, string) (net.Conn, error)
 }
 
 // The SOCKS handshake runs on our socket so TCP half-close remains available
@@ -44,8 +50,29 @@ func NewEgress(c Config) (*Egress, error) {
 	}
 	u, _ := url.Parse(c.ProxyURL)
 	e := &Egress{upstream: u, dnsURL: c.DNSURL, connect: &net.Dialer{Timeout: 20 * time.Second, KeepAlive: 30 * time.Second}}
+	// The guest's LAN opt-in: netguard decides which addresses that is (the
+	// subnets this machine is on, never the machine itself).
+	e.public.LAN = c.LANAccess
+	e.public.LANNets = c.LANPrefixes()
 	e.client = &http.Client{Timeout: 20 * time.Second, Transport: &http.Transport{Proxy: nil, DialContext: e.DialContext, ForceAttemptHTTP2: true}, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("DNS redirect refused") }}
 	return e, nil
+}
+
+// dialLAN dials a local-network address from this machine when the user opened
+// the LAN. It reports false for anything else, which then takes the proxy.
+func (e *Egress) dialLAN(ctx context.Context, addr string) (net.Conn, bool, error) {
+	if !e.public.LAN {
+		return nil, false, nil
+	}
+	ap, err := netip.ParseAddrPort(addr)
+	if err != nil || !ap.Addr().Is4() || !ap.Addr().IsPrivate() || !e.public.Allows("tcp", ap) {
+		return nil, false, nil
+	}
+	conn, err := e.connect.DialContext(ctx, "tcp", ap.String())
+	if err != nil {
+		return nil, true, usererror.Wrap("连接局域网设备", err, "请确认目标地址在本机所处网段内且设备在线。")
+	}
+	return conn, true, nil
 }
 
 func (e *Egress) Allows(network string, dst netip.AddrPort) bool {
@@ -91,6 +118,11 @@ func (e *Egress) DialContext(ctx context.Context, network, addr string) (net.Con
 	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
+	// The LAN opt-in is the one path that does not leave through the proxy:
+	// the proxy's exit node cannot see this machine's local network.
+	if conn, handled, err := e.dialLAN(ctx, addr); handled {
+		return conn, err
+	}
 	if strings.HasPrefix(e.upstream.Scheme, "socks5") {
 		var auth *proxy.Auth
 		if e.upstream.User != nil {

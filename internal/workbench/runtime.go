@@ -543,7 +543,11 @@ func (s *Server) apply(v savedProfile, validate bool) error {
 	}
 	wasReady := vmAlive(s.profile, s.environmentDir())
 	s.mu.Unlock()
-	changed := old != v.Config || oldPrefs.AutoTimezone != v.Preferences.AutoTimezone || oldPrefs.AutoLanguage != v.Preferences.AutoLanguage
+	// A LAN opt-in only changes what the guest may reach; the exit is the same,
+	// so it does not need the location probe (it applies when the VM restarts).
+	exitOld, exitNew := old, v.Config
+	exitNew.LANAccess = exitOld.LANAccess
+	changed := exitOld != exitNew || oldPrefs.AutoTimezone != v.Preferences.AutoTimezone || oldPrefs.AutoLanguage != v.Preferences.AutoLanguage
 	if changed && validate && old.RequireManagedProxy(s.profile) == nil {
 		s.setMessage("正在验证新出口，现有环境保持运行…")
 		loc, e := probeEnvironmentLocation(s.operationContext(), v.Config, v.Preferences)

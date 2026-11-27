@@ -100,11 +100,71 @@ function Stream-Hash([IO.Stream]$Stream) {
     finally { $algorithm.Dispose(); $Stream.Position = 0 }
 }
 
-function Initialize-VerifiedDeletion {
-    if (!('CageVerifiedFile' -as [type])) { Add-Type -Path (Join-Path $PSScriptRoot 'verified-file-deletion.cs') }
+# Windows PowerShell 5.1 compiles Add-Type with csc.exe, which cannot write its
+# output below a temporary folder that the ANSI code page cannot encode and
+# fails with "The directory name is invalid". The compile alone then uses the
+# folder's 8.3 short form, or a private folder under the system temporary
+# folder; the type is loaded in memory, so that folder is removed afterwards.
+function Test-AnsiPath([string]$Path) {
+    return [Text.Encoding]::Default.GetString([Text.Encoding]::Default.GetBytes($Path)) -eq $Path
 }
 
-function Remove-MatchingFile([string]$Root, [string]$Relative, [string]$Hash) {
+function Compiler-TemporaryFolder {
+    $temporary = [IO.Path]::GetTempPath()
+    if ($PSVersionTable.PSEdition -ne 'Desktop' -or (Test-AnsiPath $temporary)) { return $null }
+    if ($env:SystemRoot) {
+        $private = Join-Path $env:SystemRoot ('Temp\cage-' + [guid]::NewGuid().ToString('N'))
+        try {
+            [IO.Directory]::CreateDirectory($private) | Out-Null
+            return @{path = $private; created = $true}
+        } catch { }
+    }
+    try {
+        $short = (New-Object -ComObject Scripting.FileSystemObject).GetFolder($temporary).ShortPath
+        if ($short -and (Test-AnsiPath $short) -and $short -notmatch '[?*]' -and [IO.Directory]::Exists($short)) {
+            return @{path = $short; created = $false}
+        }
+    } catch { }
+    return $null
+}
+
+function Initialize-VerifiedDeletion {
+    if ('CageVerifiedFile' -as [type]) { return }
+    # Read the C# source through .NET so csc.exe never receives a source file
+    # path under a non-ANSI $PLUGINSDIR inside TEMP.
+    $code = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'verified-file-deletion.cs'), [Text.Encoding]::UTF8)
+    $folder = Compiler-TemporaryFolder
+    $workDir = if ($env:SystemRoot -and [IO.Directory]::Exists($env:SystemRoot)) { $env:SystemRoot } elseif ($folder) { $folder.path } else { $null }
+    $saved = $env:TMP, $env:TEMP, $env:LIB
+    $savedDirectory = [Environment]::CurrentDirectory
+    $pushed = $false
+    try {
+        # csc.exe treats a LIB search path that does not exist as an error;
+        # this managed-only type needs no native SDK library path.
+        $env:LIB = $null
+        if ($folder) { $env:TMP = $env:TEMP = $folder.path }
+        if ($workDir) {
+            Push-Location -LiteralPath $workDir
+            $pushed = $true
+            [Environment]::CurrentDirectory = $workDir
+        }
+        Add-Type -TypeDefinition $code
+    } finally {
+        if ($pushed) { Pop-Location }
+        [Environment]::CurrentDirectory = $savedDirectory
+        $env:TMP, $env:TEMP, $env:LIB = $saved
+        if ($folder -and $folder.created) {
+            # A standard user cannot list the system temporary folder, so the
+            # private folder is removed directly rather than with Remove-Item.
+            try {
+                foreach ($file in [IO.Directory]::GetFiles($folder.path)) { [IO.File]::Delete($file) }
+                [IO.Directory]::Delete($folder.path)
+            } catch { }
+        }
+    }
+}
+
+function Remove-MatchingFile([string]$Root, [string]$Relative, [string]$Hash, $Deleted) {
     $Path = Join-Path $Root $Relative
     if (!(Test-Path -LiteralPath $Path -PathType Leaf)) { return }
     if ((Get-Item -LiteralPath $Path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { return }
@@ -114,6 +174,7 @@ function Remove-MatchingFile([string]$Root, [string]$Relative, [string]$Hash) {
     try {
         if ((Stream-Hash $stream) -eq $Hash) {
             if ($windows) { [CageVerifiedFile]::Delete($stream) } else { [IO.File]::Delete($Path) }
+            if ($null -ne $Deleted) { $null = $Deleted.Add([IO.Path]::GetFullPath($Path)) }
         }
     }
     finally { $stream.Dispose() }
@@ -190,10 +251,53 @@ function Save-Transfer($Transfer) {
     } finally { if (Test-Path -LiteralPath $temporary) { [IO.File]::Delete($temporary) } }
 }
 
-function Complete-Transfer {
+function Test-HasExistingContent([string]$Path) {
+    if (!$Path) { return $false }
+    $item = $null
+    try { $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop }
+    catch [Management.Automation.ItemNotFoundException], [IO.FileNotFoundException], [IO.DirectoryNotFoundException] {
+        return $false
+    } catch {
+        return $true
+    }
+    if (!$item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { return $true }
+    try { return @(Get-ChildItem -LiteralPath $Path -Force -ErrorAction Stop).Count -gt 0 }
+    catch { return $true }
+}
+
+# A running process maps the replaced version's program images, so cleanup can
+# neither delete them nor move their folder. Bytes that still match the receipt
+# hold no user data and need no recovery; only then may that folder remain.
+# Another process may hold a verified and deleted file open with delete
+# sharing: it stays listed and blocks the move, but opening it is denied while
+# its deletion is pending. Any other file that cannot be read keeps the receipt.
+function Test-OnlyProgramFiles([string]$Root, $Files, $PendingDeletions) {
+    $owned = @{}
+    foreach ($entry in $Files) { $owned[$entry.path] = $entry.sha256 }
+    $found = $false
+    foreach ($item in Read-Tree $Root $null) {
+        if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { return $false }
+        if ($item.PSIsContainer) { continue }
+        $relative = Relative-Path $Root $item.FullName
+        if (!$owned.ContainsKey($relative)) { return $false }
+        try { $stream = Open-ReadLocked $item.FullName }
+        catch [UnauthorizedAccessException] {
+            if (!$PendingDeletions.Contains([IO.Path]::GetFullPath($item.FullName))) { return $false }
+            $found = $true
+            continue
+        } catch { return $false }
+        try { if ((Stream-Hash $stream) -ne $owned[$relative]) { return $false } } finally { $stream.Dispose() }
+        $found = $true
+    }
+    return $found
+}
+
+function Complete-Transfer([string]$RetainedBackup) {
     $transfer = Get-Content -LiteralPath $Receipt -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($transfer.kind -ne 'cage-installation' -or !(Test-Path -LiteralPath (Join-Path $Target $identityName))) { throw '安装目录尚未恢复，事务回执已保留。' }
-    if ($transfer.backupPath -and (Test-Path -LiteralPath $transfer.backupPath)) { throw ('旧目录仍需恢复，事务回执已保留：' + $transfer.backupPath) }
+    $retained = $RetainedBackup -and $transfer.backupPath -and
+        [IO.Path]::GetFullPath($transfer.backupPath).TrimEnd([IO.Path]::DirectorySeparatorChar) -eq [IO.Path]::GetFullPath($RetainedBackup).TrimEnd([IO.Path]::DirectorySeparatorChar)
+    if ($transfer.backupPath -and !$retained -and (Test-Path -LiteralPath $transfer.backupPath)) { throw ('旧目录仍需恢复，事务回执已保留：' + $transfer.backupPath) }
     foreach ($entry in $transfer.moves) {
         if ($entry.state -eq 'absent') { continue }
         $relative = if ($entry.state -eq 'moved') { $entry.destination } else { $entry.path }
@@ -216,6 +320,14 @@ foreach ($rootPath in @($Target, $Source)) {
 if ($Operation -eq 'prepare') {
     $diagnosticStep = 'reading_new_manifest'
     if (Test-Path -LiteralPath $Receipt) { throw ('仍有未完成的安装事务，请保留并检查回执：' + $Receipt) }
+    # Completing the receipt deletes it through the verified-deletion type.
+    # Compiling it before the receipt exists stops an installation that could
+    # not complete before any file is published.
+    if ($env:OS -eq 'Windows_NT') {
+        $diagnosticStep = 'loading_verified_deletion'
+        Initialize-VerifiedDeletion
+        $diagnosticStep = 'reading_new_manifest'
+    }
     $current = Read-FileManifest (Join-Path $Target $manifestName)
     $legacySnapshot = !$current.Count -and $LegacyTarget
     if ($legacySnapshot) {
@@ -342,6 +454,7 @@ if ($Operation -eq 'prepare') {
 } elseif ($Operation -eq 'cleanup') {
     $diagnosticStep = 'verifying_previous_file_ownership'
     $transfer = Get-Content -LiteralPath $Receipt -Raw -Encoding UTF8 | ConvertFrom-Json
+    $deleted = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     $actual = @(Read-Tree $Source @($transfer.files.path) | Where-Object { !($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } | ForEach-Object { Relative-Path $Source $_.FullName })
     foreach ($entry in $transfer.files) {
         if ($entry.path -notin $actual) { continue }
@@ -350,17 +463,28 @@ if ($Operation -eq 'prepare') {
                 $copy = Open-ReadLocked (Join-Path $Target $entry.destination)
                 try { if ((Stream-Hash $copy) -ne $entry.sha256) { continue } } finally { $copy.Dispose() }
             }
-            Remove-MatchingFile $Source $entry.path $entry.sha256
+            Remove-MatchingFile $Source $entry.path $entry.sha256 $deleted
         } catch { Write-Output '安装期间变化或被占用的文件已保留在旧目录。' }
     }
     Remove-EmptyDirectories $Source $transfer.directories
+    $retainedBackup = $null
     if (@(Get-ChildItem -LiteralPath $Source -Force).Count) {
         $recovery = Join-Path $Target ('Cage-preserved-files/late-' + [guid]::NewGuid().ToString('N'))
-        [IO.Directory]::CreateDirectory((Split-Path $recovery -Parent)) | Out-Null
-        [IO.Directory]::Move($Source, $recovery)
-        Write-Output ('安装期间变化的文件已保留在 ' + $recovery)
+        $preserved = Split-Path $recovery -Parent
+        $createdPreserved = !(Test-Path -LiteralPath $preserved)
+        [IO.Directory]::CreateDirectory($preserved) | Out-Null
+        try {
+            [IO.Directory]::Move($Source, $recovery)
+            Write-Output ('安装期间变化的文件已保留在 ' + $recovery)
+        } catch {
+            $failure = $_
+            if ($createdPreserved) { [IO.Directory]::Delete($preserved) }
+            if (!(Test-OnlyProgramFiles $Source $transfer.files $deleted)) { throw $failure }
+            $retainedBackup = $Source
+            Write-Output ('被替换的程序文件仍被占用，已留在 ' + $Source + '，退出相关程序后可删除。')
+        }
     } else { [IO.Directory]::Delete($Source) }
-    Complete-Transfer
+    Complete-Transfer $retainedBackup
 } elseif ($Operation -eq 'detach') {
     # Source is the installation folder, Target the new backup folder.
     $diagnosticStep = 'detaching_previous_application'
@@ -388,7 +512,7 @@ if ($Operation -eq 'prepare') {
     $diagnosticStep = 'abandoning_first_installation'
     $transfer = Get-Content -LiteralPath $Receipt -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($transfer.kind -ne 'cage-installation' -or $transfer.backupPath -or @($transfer.moves).Count -or @($transfer.files).Count -or
-        ($transfer.installPath -and (Test-Path -LiteralPath $transfer.installPath)) -or (Test-Path -LiteralPath $Target)) {
+        @($transfer.directories).Count -or (Test-HasExistingContent $transfer.installPath) -or (Test-HasExistingContent $Target)) {
         throw '安装事务涉及已有文件，回执已保留待核对。'
     }
     $receiptStream = Open-ReadLocked $Receipt

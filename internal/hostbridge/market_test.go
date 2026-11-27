@@ -238,3 +238,100 @@ func TestMarketShowsOnlyWellFormedSources(t *testing.T) {
 		}
 	}
 }
+
+func TestMarketOptionalRuntimeAndPlatforms(t *testing.T) {
+	good := packTar(t, tarFile{name: "notes/plugin.json", body: marketManifest})
+	market, client := serveMarket(t, nil, func(base string) []MarketEntry {
+		unix := entryFor(base, "notes-1.2.0.tar.gz", good)
+		unix.Platforms = []string{"darwin", "linux"}
+		unix.Runtime = "python3"
+		win := entryFor(base, "notes-1.2.0.tar.gz", good)
+		win.Platforms = []string{"windows"}
+		win.Target = "win32-x64"
+		win.Runtime = "powershell"
+		bad := entryFor(base, "notes-1.2.0.tar.gz", good)
+		bad.Name = "bad-rt"
+		bad.Runtime = "python3; rm -rf /"
+		return []MarketEntry{unix, win, bad}
+	})
+	entries, err := market.Fetch(context.Background(), client)
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("entries %+v: %v", entries, err)
+	}
+	for _, entry := range entries {
+		switch entry.Name {
+		case "notes":
+			if entry.Runtime == "" {
+				t.Errorf("notes runtime was dropped")
+			}
+			wantPlatforms := []string{"darwin", "windows", "linux"}
+			if strings.Join(entry.AllPlatforms, ",") != strings.Join(wantPlatforms, ",") {
+				t.Errorf("notes AllPlatforms %v, want %v", entry.AllPlatforms, wantPlatforms)
+			}
+		case "bad-rt":
+			if entry.Runtime != "" {
+				t.Errorf("malformed runtime kept: %q", entry.Runtime)
+			}
+		}
+	}
+}
+
+func TestMarketSanitizesAuthorAndI18n(t *testing.T) {
+	digest := strings.Repeat("a", 64)
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		index := map[string]any{
+			"version": 1,
+			"plugins": []map[string]any{{
+				"name":        "clock",
+				"version":     "0.1.4",
+				"description": "Tells the current time.",
+				"permissions": []string{},
+				"author":      map[string]any{"name": " Lee-xeo ", "official": true},
+				"i18n": map[string]any{
+					"zh-CN":   map[string]string{"displayName": " 时钟 ", "description": "获取当前时间。"},
+					"fr":      map[string]string{"displayName": "Horloge", "description": "Indique l'heure actuelle."},
+					"bad key": map[string]string{"description": "ignored"},
+					"ru":      map[string]string{"description": "has\x00control"},
+				},
+				"archive": server.URL + "/dist/clock-0.1.4.tar.gz",
+				"sha256":  digest,
+				"bytes":   100,
+			}},
+		}
+		_ = json.NewEncoder(w).Encode(index)
+	}))
+	defer server.Close()
+	market := Market{IndexURL: server.URL + "/index.json", ArchivePrefix: server.URL + "/dist/"}
+	entries, err := market.Fetch(context.Background(), server.Client())
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("Fetch: %v (%d entries)", err, len(entries))
+	}
+	entry := entries[0]
+	if entry.Author == nil || entry.Author.Name != "Lee-xeo" || !entry.Author.Official {
+		t.Fatalf("unexpected author: %+v", entry.Author)
+	}
+	if len(entry.I18n) != 2 || entry.I18n["zh-CN"].DisplayName != "时钟" || entry.I18n["zh-CN"].Description != "获取当前时间。" || entry.I18n["fr"].DisplayName != "Horloge" {
+		t.Fatalf("unexpected i18n: %+v", entry.I18n)
+	}
+}
+
+func TestLoadI18nReadsPlainFileOnly(t *testing.T) {
+	dir := t.TempDir()
+	if got := LoadI18n(dir); got != nil {
+		t.Fatalf("missing i18n.json should return nil, got %+v", got)
+	}
+	if err := os.WriteFile(filepath.Join(dir, I18nFile), []byte(`{"zh-CN":{"displayName":"时钟","description":"显示当前时间。"},"bad!":{"description":"skip"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := LoadI18n(dir)
+	if len(got) != 1 || got["zh-CN"].DisplayName != "时钟" || got["zh-CN"].Description != "显示当前时间。" {
+		t.Fatalf("unexpected LoadI18n result: %+v", got)
+	}
+	linkDir := t.TempDir()
+	if err := os.Symlink(filepath.Join(dir, I18nFile), filepath.Join(linkDir, I18nFile)); err == nil {
+		if linked := LoadI18n(linkDir); linked != nil {
+			t.Fatalf("symlinked i18n.json must be ignored, got %+v", linked)
+		}
+	}
+}

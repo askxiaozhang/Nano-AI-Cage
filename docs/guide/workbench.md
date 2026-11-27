@@ -1,9 +1,9 @@
 ---
 title: 项目、终端与文件
-description: 在同一工作台运行 Claude Code、编辑代码、传递附件，并弄清关闭和退出对任务的影响。
+description: 在工作台或主机终端运行 Claude Code，管理共享项目、编辑代码、传递附件，并了解任务何时结束。
 group: 日常工作
 order: 3
-keywords: 项目 Claude Code 编辑器 code-server Git GitHub gh 提交 推送 文件 复制 粘贴 快捷键 分屏 标签 localhost
+keywords: 项目 Claude Code 主机终端 CLI cage start cage login cage up cage stop cage account 编辑器 code-server Git GitHub gh 提交 推送 文件 复制 粘贴 快捷键 分屏 标签 localhost
 ---
 ## 打开项目与编辑文件
 
@@ -26,6 +26,80 @@ keywords: 项目 Claude Code 编辑器 code-server Git GitHub gh 提交 推送 �
 所有项目共用一个环境、工具和账户。切换项目不会改变已有终端的目录，也不会关闭网页或撤销之前的共享。云端的目录与权限见[云端部署与 SSH](cloud.md)。
 
 共享文件在环境内显示为当前用户所有，Git 可正常读取已打开项目的状态与历史。文件内容仍属于原来的主机目录，Git 元数据与项目一起共享，环境中的 Git 操作会直接更新主机仓库。授权目录内的隐藏文件、工具配置、Git 配置和钩子均按普通项目文件共享。Cage 不按文件名额外隐藏文件或禁止写入；云端共享的整目录只读授权仍然生效。
+
+## 在本机终端使用 Claude Code
+
+主机 CLI 是面向 v0.2.2 的完整版功能，可在应用自带的 `cage --help` 中查找 `cage start` 来确认当前构建是否支持。macOS 在 **Cage → 安装终端命令…** 中安装 `cage`，然后打开新终端。Windows 安装完整版后，在新开的 PowerShell 或命令提示符中使用 `cage`。Linux 可直接用 `claude-cage` 替换下文的 `cage`。短名空闲时可用 `claude-cage install-cli` 安装。
+
+```sh
+cage login
+cd ~/Projects/my-project
+cage
+```
+
+`cage login` 会打开 Cage 自己的浏览器，供你登录 **Claude 账号**。只有环境里的 Claude Code 确认授权，终端才提示登录成功。已有有效登录时会直接打开 `claude.ai`。本机工作台处于锁定状态时，在 Cage 窗口解锁，原命令会自动继续。直接输入 `cage login` 或 `cage` 都会按需启动后台和本机环境，也可以提前运行 `cage start`。
+
+在一个新文件夹运行 Claude 会自动将**当前文件夹**加入工作台的共享项目。修改会写回本机，关掉终端后项目仍在侧栏，可从工作台移除。在已有项目的子目录或其他绑定文件夹运行时，复用该项目，从当前子目录开始工作。根目录、用户主目录和 Cage 的私有目录沿用工作台的共享限制。显式传入的额外目录（如 `--add-dir ../library`）共享到最后一个使用它的命令结束。已登记的项目按原来的共享设置使用。登录、状态和帮助命令都可以在任意目录执行。
+
+### 提问、脚本与会话
+
+提示词、选项和 Claude 子命令由环境内安装的 Claude Code 解析。
+
+```sh
+cage "解释这个仓库的启动流程"
+cage -c                                # 继续当前目录最近的会话
+cage -r "$SESSION_ID"                  # SESSION_ID 为要恢复的会话 ID
+cage --model sonnet
+git diff | cage -p "概括改动" --output-format json
+cage auth status                       # 查看 Claude 的授权状态
+```
+
+脚本可读取 Claude 的标准输出、标准错误和退出码。流式输出用 `-p --output-format stream-json --verbose`。遇到需要人工授权的状态时，脚本返回错误，提示写入标准错误。关闭本机交互终端后，仍在运行的会话可从工作台接回。若要用 Claude 自带的 `--bg` 启动长期任务，请将长期需要的额外目录加入工作台的项目绑定。
+
+### 后台服务与运行环境
+
+| 命令 | 用途 |
+| --- | --- |
+| `cage start` | 在后台启动或复用本机控制服务，服务就绪后返回终端。虚拟机保持原来的运行状态 |
+| `cage serve` | 在当前终端前台运行控制服务 |
+| `cage up` | 显式启动本机运行环境、编辑器和浏览器服务 |
+| `cage status` | 分别查看后台服务与运行环境状态，工作台锁定时显示解锁提示 |
+| `cage stop` | 停止本机运行环境及其代理，中断环境内的任务。后台控制服务可继续运行 |
+| `cage restart` | 用已有磁盘和配置重启本机运行环境，等待环境就绪。正在运行的任务会中断 |
+| `cage desktop` | 从本机终端打开 Cage 工作台 |
+
+遇到同名命令时，`cage claude` 可明确调用 Claude Code。例如，`cage claude stop <后台会话ID>` 只停止指定的 Claude 后台会话。`cage --help` 和 `cage --version` 查看 Cage 的命令和版本。`cage claude --help`、`cage claude --version` 查看环境内 Claude Code 的帮助和版本，`cage mcp --help` 列出它的 MCP 子命令。
+
+**重建环境会丢失虚拟磁盘中的文件与登录状态。** `cage up --reset` 和旧版兼容用法 `cage login --reset` 都会重建虚拟机。日常登录使用 `cage login`。
+
+### 选择 Claude 账号
+
+| 命令 | 用途 |
+| --- | --- |
+| `cage account list` | 查看工作台已登记的 Claude 账号和编号 |
+| `cage account use 2`、`cage account use auto` | 为后续 CLI 调用选定账号，或恢复工作台的自动分配 |
+| `cage account run 2 -- -p "你好"` | 只为本次调用选择账号 |
+
+登录凭据留在 Cage 环境里，Claude 使用所选账号的出口和权限设置。和工作台相同，一个环境可以同时访问多个已共享项目。[账号分配与会话接续](accounts.md)
+
+### 从命令行在项目中运行其他程序
+
+通过 SSH 登录运行 Cage 的电脑等纯终端场景，可以在本机项目目录中直接使用 Cage 的命令行（各平台的位置见[让 Agent 配置 Cage](agent.md#agent-从哪里开始)，Linux 上为 `claude-cage`）：
+
+```sh
+cd ~/Projects/my-project/src
+cage run pwd          # 输出该目录在环境中的对应路径
+cage run --tty claude # Claude 从这里开始工作
+```
+
+`cage run` 后面依次写可执行文件和它的参数，各自作为单独的参数传入，例如 `cage run echo "hello world"`；整条命令写在一对引号里（如 `cage run "echo hi"`）会被当作一个文件名查找，找不到时提示改用分开的写法，退出码为 127。需要管道、重定向等 shell 语法时显式调用 shell，例如 `cage run bash -lc 'echo hello | cat'`。
+
+- 当前目录位于已添加的项目内（包括子目录和多文件夹项目中的任一文件夹）时，命令在环境中的对应位置运行，并按需重新连接该项目。macOS 和 Linux 上环境路径与本机相同；Windows 的 `D:\Projects\demo` 在环境中为 `/d/Projects/demo`。
+- 其他情况——当前目录未共享、Cage 未打开或环境未就绪、项目正被其他操作占用、无法判断——命令照旧在环境目录中运行，并在标准错误输出一行说明；在终端里运行时还会提示如何共享当前目录。已有的脚本、定时任务和编辑器集成不受影响。
+- `--here` 要求在当前目录运行：未共享时在终端里先询问是否共享，确认后按与“添加本机项目”相同的规则校验并创建项目，再运行命令（主目录、Cage 配置目录等不允许共享的位置照常被拒绝）；输入不是终端、取消、共享失败、Cage 未打开或环境未就绪时报错且不运行。例如 `cage run --here --tty claude`。
+- `--workdir 目录` 明确指定环境中的绝对路径，优先于当前目录，不检查共享，例如 `cage run --workdir /tmp ls`。目录不存在时命令不运行。不能与 `--here` 同时使用。
+
+在对应项目目录中运行需要 Cage 已打开且环境就绪：项目共享由运行中的 Cage 维持。共享对环境中的所有程序生效，和在界面中添加项目相同。
 
 <figure class="guide-shot">
   <a href="../../www/public/docs/screenshots/first-start.jpg" target="_blank" rel="noopener"><img src="../../www/public/docs/screenshots/first-start.jpg" alt="工作台侧栏、默认项目与终端入口（环境未启动）" width="2560" height="1764" loading="lazy" decoding="async" /></a>
@@ -66,6 +140,22 @@ git push
 ```
 
 登录账户仍需拥有目标仓库的写入权限；组织 SSO、分支保护和工作流权限继续由 GitHub 管理。
+
+### 在本机和环境之间使用 git worktree
+
+`git worktree` 把仓库与额外工作区的位置以绝对路径写在两处：工作区里的 `.git` 文件，以及主仓库的 `.git/worktrees/<名称>/gitdir`。Cage 不修改这些文件，能否两边通用取决于本机与环境中的路径是否一致：
+
+- 工作区目录必须位于已共享的文件夹内：把工作区所在的上级目录加入项目，或把工作区目录本身加入同一项目。共享后再创建工作区；环境里原本就存在的同名目录会被共享内容遮住，其中的文件仍在环境磁盘上，不会出现在本机。
+- macOS 和 Linux：共享文件夹在环境中的路径与本机相同，在任一侧创建的工作区两边都能直接使用。
+- Windows：`D:\Projects\repo` 在环境中是 `/d/Projects/repo`。在环境中创建的工作区写的是 `/d/...`，Windows 的 Git 无法识别；在 Windows 上创建的写的是 `D:/...`，环境中的 Git 同样找不到，对方会把它列为 prunable（可清理）。
+
+Windows 上建议每个工作区只在创建它的一侧使用。确实需要两边切换时：
+
+1. 在创建工作区的一侧执行 `git worktree lock --reason "两边共用" <工作区路径>`。被锁定的工作区不会被 `git worktree prune` 或 `git gc` 的自动清理删除登记；未锁定时，另一侧的清理可能删掉它的登记信息（工作区文件本身保留，但需要重新关联）。
+2. 每次换到另一侧使用前，在主仓库中执行 `git worktree repair <工作区路径>`，把两处链接改写为当前这一侧的路径。换回来时在原来一侧再执行一次。
+3. 不要在另一侧对显示为 prunable 的工作区执行 `git worktree prune` 或 `git worktree remove`。
+
+Git 2.48 起可以用 `git worktree add --relative-paths` 或 `worktree.useRelativePaths=true` 写入相对路径，两边路径不同也能共用。但它会给仓库启用 `extensions.relativeWorktrees`，更早的 Git 会拒绝打开整个仓库；当前 Debian 13 环境的 Git 是 2.47，因此在本机开启这一选项后，环境里将无法使用该仓库。环境内的 Git 升级到 2.48 或更新之前，不要对需要在 Cage 中打开的仓库开启它。
 
 ## 新建 Claude 终端
 

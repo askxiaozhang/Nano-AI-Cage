@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   defaultAppearance,
   normalizeAppearance,
@@ -252,4 +253,67 @@ test("accessible presets keep text, state colors, focus, borders and all ANSI te
       );
       check(terminal.cursorAccent, terminal.cursor, threshold, "cursor text");
     }
+});
+
+test("derived muted color maintains clear visual hierarchy without losing legibility on soft palettes", async () => {
+  const { themeCatalog, applyThemePreset } = await import(
+    "./appearance-presets.mjs"
+  );
+  for (const variant of ["light", "dark"]) {
+    const codex = themeVariables(defaultAppearance[variant + "Theme"], variant);
+    const inkRatio = contrastRatio(codex["--ink"], codex["--paper"]);
+    const mutedRatio = contrastRatio(codex["--muted"], codex["--paper"]);
+    assert.ok(mutedRatio >= 4.5, `codex/${variant} muted contrast ${mutedRatio}`);
+    assert.ok(
+      inkRatio - mutedRatio >= 4,
+      `codex/${variant} muted should visually step down from ink`,
+    );
+  }
+  for (const item of themeCatalog) {
+    for (const variant of ["light", "dark"]) {
+      if (!item[variant]) continue;
+      const theme = applyThemePreset(
+        defaultAppearance[variant + "Theme"],
+        variant,
+        item.id,
+      );
+      const vars = themeVariables(theme, variant);
+      if (contrastRatio(vars["--ink"], vars["--paper"]) >= 5.2) {
+        assert.ok(
+          contrastRatio(vars["--muted"], vars["--paper"]) >= 4.5,
+          `${item.id}/${variant} muted contrast dropped below 4.5`,
+        );
+      }
+    }
+  }
+});
+
+test("syncGuestTheme defaults to true, preserves explicit false, and stays excluded from portable theme documents", () => {
+  assert.equal(defaultAppearance.syncGuestTheme, true);
+  assert.equal(normalizeAppearance({}).syncGuestTheme, true);
+  assert.equal(normalizeAppearance({ syncGuestTheme: false }).syncGuestTheme, false);
+  assert.equal(normalizeAppearance({ syncGuestTheme: true }).syncGuestTheme, true);
+  const doc = themeDocument("Theme Export", {
+    ...defaultAppearance,
+    syncGuestTheme: false,
+  });
+  assert.equal("syncGuestTheme" in doc, false);
+});
+
+test("blurStatusNetwork defaults to off, only explicit true enables it, and stays out of theme documents", () => {
+  assert.equal(defaultAppearance.blurStatusNetwork, false);
+  assert.equal(normalizeAppearance({}).blurStatusNetwork, false);
+  assert.equal(normalizeAppearance({ blurStatusNetwork: "true" }).blurStatusNetwork, false);
+  assert.equal(normalizeAppearance({ blurStatusNetwork: true }).blurStatusNetwork, true);
+  const doc = themeDocument("Theme Export", { ...defaultAppearance, blurStatusNetwork: true });
+  assert.equal("blurStatusNetwork" in doc, false);
+});
+
+test("status bar exit IP and location blur only when enabled and reveal on hover or keyboard focus", () => {
+  const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
+  assert.match(read("./appearance.jsx"), /root\.dataset\.blurStatusNetwork = String\(appearance\.blurStatusNetwork\)/);
+  assert.match(read("./main.jsx"), /className=\{[^}]*status\.location \|\| status\.safety\?\.exit_ip\) \? "status-network-value"/);
+  const css = read("./appearance.css");
+  assert.match(css, /:root\[data-blur-status-network="true"\] \.status-network-value \{\s*filter: blur\(/);
+  assert.match(css, /button:hover \.status-network-value,\s*:root\[data-blur-status-network="true"\] \.status-bar button:focus-visible \.status-network-value \{\s*filter: none;/);
 });

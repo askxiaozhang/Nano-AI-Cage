@@ -1,7 +1,10 @@
 package host
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"os"
 	"strings"
 )
 
@@ -26,16 +29,16 @@ func windowsSocketDirProblem(dir string, room int, excluded []string) error {
 	if len(dir)+room > windowsSocketPathLimit {
 		return errors.New("too long")
 	}
-	if windowsPathWithin(dir, excluded) {
+	if WindowsPathWithin(dir, excluded) {
 		return errors.New("inside AppData or Temp")
 	}
 	return nil
 }
 
-// windowsPathWithin reports whether dir is one of roots or below one,
+// WindowsPathWithin reports whether dir is one of roots or below one,
 // comparing as Windows does: case-insensitively, ignoring trailing dots and
 // spaces of each component.
-func windowsPathWithin(dir string, roots []string) bool {
+func WindowsPathWithin(dir string, roots []string) bool {
 	normalize := func(p string) string {
 		parts := strings.Split(strings.ReplaceAll(p, "/", `\`), `\`)
 		for i, part := range parts {
@@ -46,11 +49,17 @@ func windowsPathWithin(dir string, roots []string) bool {
 		return strings.ToLower(strings.TrimRight(strings.Join(parts, `\`), `\`))
 	}
 	d := normalize(dir)
+	if d == "" {
+		return false
+	}
 	for _, root := range roots {
 		if root == "" {
 			continue
 		}
 		r := normalize(root)
+		if r == "" {
+			continue
+		}
 		if d == r || strings.HasPrefix(d, r+`\`) {
 			return true
 		}
@@ -58,29 +67,62 @@ func windowsPathWithin(dir string, roots []string) bool {
 	return false
 }
 
-// chooseWindowsSocketDir returns the first usable spelling. Each candidate is
-// a long path and, when it exists, the ASCII alias Windows gives it; an alias
-// must not escape the exclusion its long path is checked against.
-func chooseWindowsSocketDir(candidates []string, room int, excluded []string, ensure func(string) error, shortName func(string) (string, error)) (string, error) {
+// errSocketDirNotCreated is a lookup for a directory that is to be reached
+// through its 8.3 alias but does not exist yet: the core has not created it.
+var errSocketDirNotCreated = errors.New("socket directory not created yet")
+
+// windowsSocketFS is what chooseWindowsSocketDir needs to know about the
+// file systems holding the candidates.
+type windowsSocketFS struct {
+	// persistentACLs reports whether the volume holding a path keeps access
+	// control lists, so a directory there can be made private (exFAT and
+	// FAT32 cannot).
+	persistentACLs func(string) bool
+	exists         func(string) bool
+	mkdir          func(string) error
+	shortName      func(string) (string, error)
+	// mkdirPrivate creates a directory that is private to the current user
+	// from the moment it exists, and ownedPrivate reports why an existing
+	// one is not a real directory owned by and private to the current user.
+	mkdirPrivate func(string) error
+	ownedPrivate func(string) error
+}
+
+// chooseWindowsSocketDir picks the directory for a profile's sockets: the
+// first candidate on a volume with persistent ACLs whose spelling, or the
+// ASCII 8.3 alias Windows gives it, is usable. An alias must not escape the
+// exclusion its long path is checked against.
+//
+// The choice depends only on the paths and on properties of the volumes
+// holding them, never on whether making the directory private succeeded, so
+// the process that creates the directory and the processes that only look
+// it up always agree. Reading an alias needs the directory to exist: with
+// create it is made first, without it a lookup reports errSocketDirNotCreated
+// instead of moving on to a candidate the creating process would not use.
+func chooseWindowsSocketDir(candidates []string, room int, excluded []string, fs windowsSocketFS, create bool) (string, error) {
 	var reasons []string
 	for _, dir := range candidates {
 		problem := windowsSocketDirProblem(dir, room, excluded)
-		if problem == nil {
-			if err := ensure(dir); err != nil {
-				reasons = append(reasons, err.Error())
-				continue
-			}
-			return dir, nil
-		}
-		if strings.HasPrefix(dir, `\\`) || windowsPathWithin(dir, excluded) {
+		if strings.HasPrefix(dir, `\\`) || WindowsPathWithin(dir, excluded) {
 			reasons = append(reasons, problem.Error())
 			continue
 		}
-		if err := ensure(dir); err != nil {
-			reasons = append(reasons, err.Error())
+		if !fs.persistentACLs(dir) {
+			reasons = append(reasons, "volume keeps no access control lists")
 			continue
 		}
-		short, err := shortName(dir)
+		if problem == nil {
+			return dir, nil
+		}
+		if !fs.exists(dir) {
+			if !create {
+				return "", errSocketDirNotCreated
+			}
+			if err := fs.mkdir(dir); err != nil {
+				return "", err
+			}
+		}
+		short, err := fs.shortName(dir)
 		if err == nil && windowsSocketDirProblem(short, room, excluded) == nil {
 			return short, nil
 		}
@@ -105,4 +147,32 @@ func WindowsSocketDirCandidates(profile, home, id string) []string {
 		candidates = append(candidates, join(home, ".cage-run", id))
 	}
 	return candidates
+}
+
+// WindowsSystemSocketDir is the last candidate, for a user directory with no
+// ASCII spelling, not even through 8.3 aliases (#1037): a directory directly
+// in the root of the system drive, one per user and profile.
+func WindowsSystemSocketDir(systemDrive, user, profile string) string {
+	sum := sha256.Sum256([]byte(user + "\x00" + profile))
+	return systemDrive + `\CageRun-` + hex.EncodeToString(sum[:8])
+}
+
+// openSharedSocketDir makes dir, the WindowsSystemSocketDir chosen by
+// chooseWindowsSocketDir, ready for use. Other users can predict its name and
+// create it first, so it is created private from the start, and an existing
+// one is used only when it is a real directory owned by the current user and
+// closed to others. A directory someone else made is refused, never adopted:
+// its creator could still reach or replace the sockets in it.
+func openSharedSocketDir(dir string, fs windowsSocketFS, create bool) error {
+	if !fs.exists(dir) {
+		if !create {
+			return errSocketDirNotCreated
+		}
+		// A name taken by something that is not a real directory, such as
+		// a junction, is refused by the ownership check below.
+		if err := fs.mkdirPrivate(dir); err != nil && !errors.Is(err, os.ErrExist) {
+			return err
+		}
+	}
+	return fs.ownedPrivate(dir)
 }

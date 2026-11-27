@@ -54,7 +54,8 @@ test("TigerVNC paste sends UTF-8 after negotiation without waiting for a clipboa
   client.dispatchEvent(new Event("cage-clipboard-capability"));
   await Promise.resolve();
   assert.deepEqual(sent, ["notify", "中文🙂", "cage-paste-1"]);
-  assert.equal(client._cagePasteJob.phase, "fence");
+  assert.equal(client._cagePasteJob.phase, "announce");
+  assert.equal(client._cagePasteJob.provided, true);
   clearTimeout(client._cagePasteJob.timer);
   client._cagePasteJob.resolve();
   await paste;

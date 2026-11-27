@@ -43,6 +43,8 @@ type safetyState struct {
 type networkObservation struct {
 	Status int    `json:"status"`
 	IP     string `json:"ip"`
+	Error  string `json:"error,omitempty"`
+	Reason string `json:"reason,omitempty"`
 }
 type guestObservation struct {
 	TZ                  string             `json:"tz"`
@@ -113,6 +115,15 @@ func (s *Server) publishGate(state cage.GateStatus) {
 	}
 }
 
+// networkOpenLocked reports whether the last published gate grant still lets
+// guest traffic out. A paused or lost proxy network is closed even while the
+// guest has not yet observed the revocation.
+func (s *Server) networkOpenLocked(now time.Time) bool {
+	gate := s.safety.Gate
+	return !s.networkPaused && !s.proxyNetworkLost && gate != nil && gate.Mode == cage.GateOpen && gate.PolicyVerified &&
+		!gate.Fault && gate.Until.After(now) && gate.Report != nil && gate.Report.Authorizes(gate.RunID, gate.Configuration, now) == nil
+}
+
 // A gate grant resolves a monitoring failure. Independent diagnostics, such
 // as a location lookup failure, are cleared by the operation that owns them.
 func (s *Server) currentNetworkErrorLocked() string {
@@ -167,7 +178,7 @@ func (s *Server) finishLocationProbe(cfg cage.Config, loc Location, probeErr err
 	if err != nil {
 		return err
 	}
-	if current.ProxyURL != cfg.ProxyURL || current.ProxyRevision != cfg.ProxyRevision || current.DNSURL != cfg.DNSURL {
+	if current.ProxyURL != cfg.ProxyURL || current.ProxyRevision != cfg.ProxyRevision || current.DNSURL != cfg.DNSURL || current.DNS != cfg.DNS {
 		return nil
 	}
 	observed := loc.exitLocation()
@@ -219,7 +230,7 @@ func (s *Server) publishReport(report cage.SafetyReport) {
 }
 
 func (s *Server) safetyCheck(w http.ResponseWriter, r *http.Request) {
-	s.launch(w, "safety", s.runSafetyCheck)
+	s.launchRequest(w, r, "safety", s.runSafetyCheck)
 }
 
 func (s *Server) pauseNetwork(w http.ResponseWriter, r *http.Request) {
@@ -541,11 +552,12 @@ func (s *Server) locationForIP(ctx context.Context, cfg cage.Config, ip string) 
 	if !ok && s.location != nil && s.location.IP == ip {
 		loc, ok = *s.location, true
 	}
+	options := s.preferences.locationOptions()
 	s.mu.Unlock()
 	if ok && time.Since(loc.CheckedAt) < time.Hour && loc.CountryCode != "" {
 		return loc, nil
 	}
-	loc, err := probeLocationForIP(ctx, cfg, ip)
+	loc, err := probeLocationForIP(ctx, cfg, ip, options)
 	if err != nil {
 		return Location{}, err
 	}
@@ -665,7 +677,10 @@ func (s *Server) runSafetyCheck() (returned error) {
 	}()
 	if cfg.ExitPolicy.NeedsBinding() {
 		s.setMessage("正在首次绑定此出口节点的 IP 或地区…")
-		loc, err := probeLocation(ctx, cfg)
+		s.mu.Lock()
+		options := s.preferences.locationOptions()
+		s.mu.Unlock()
+		loc, err := probeLocation(ctx, cfg, options)
 		if err != nil {
 			return err
 		}
@@ -829,6 +844,9 @@ func (s *Server) runSafetyCheck() (returned error) {
 		set("proxy_transport", cage.CheckPassed, "终端请求经过 环境网络层的固定检测通道，并由指定代理完成 HTTPS 出口查询；未放开任意网站", "")
 	} else {
 		evidence := fmt.Sprintf("环境未能完成代理出口查询（检测通道 HTTP %d），尚不能确认代理连接可用", network.Egress.Status)
+		if detail := diagnosticFailureDetail(network.Egress); detail != "" {
+			evidence = fmt.Sprintf("环境未能完成代理出口查询（检测通道 HTTP %d，%s），尚不能确认代理连接可用", network.Egress.Status, detail)
+		}
 		if network.Egress.Status == 0 {
 			evidence = "环境没有收到代理出口查询的结果，尚不能确认代理连接可用"
 		}

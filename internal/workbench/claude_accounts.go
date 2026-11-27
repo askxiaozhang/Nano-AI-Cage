@@ -18,6 +18,9 @@ import (
 	"unicode/utf8"
 )
 
+var errNoClaudeAllocation = errors.New("暂无可分配的 Claude 账号。请在账号面板检查登录、参与状态和额度重置时间")
+var errClaudeNeedsLogin = errors.New("所选 Claude 账号需要重新登录")
+
 // A profile ID selects a guest CLI configuration directory. Only public status
 // fields enter this registry; the official CLI owns authentication in the VM.
 type claudeAccount struct {
@@ -67,13 +70,16 @@ type claudeGuestSnapshot struct {
 }
 
 type claudeAccountList struct {
-	PendingDesktop   string            `json:"pending_desktop,omitempty"`
-	DesktopRedirects map[string]string `json:"desktop_redirects,omitempty"`
-	PendingProxyNode string            `json:"pending_proxy_node,omitempty"`
-	LastNumber       uint32            `json:"last_number,omitempty"`
-	Accounts         []claudeAccount   `json:"accounts"`
-	PendingLogin     string            `json:"pending_login,omitempty"`
-	Scheduling       claudeScheduling  `json:"scheduling"`
+	DefaultDesktopRemoved bool              `json:"default_desktop_removed,omitempty"`
+	PendingDesktop        string            `json:"pending_desktop,omitempty"`
+	DesktopRedirects      map[string]string `json:"desktop_redirects,omitempty"`
+	DesktopLabels         map[string]string `json:"desktop_labels,omitempty"`
+	DismissedDefaults     []string          `json:"dismissed_defaults,omitempty"`
+	PendingProxyNode      string            `json:"pending_proxy_node,omitempty"`
+	LastNumber            uint32            `json:"last_number,omitempty"`
+	Accounts              []claudeAccount   `json:"accounts"`
+	PendingLogin          string            `json:"pending_login,omitempty"`
+	Scheduling            claudeScheduling  `json:"scheduling"`
 }
 
 type claudeScheduling struct {
@@ -96,22 +102,27 @@ func (p claudeScheduling) valid() bool {
 }
 
 type claudeAccountManager struct {
-	usageProbe     func(context.Context, string, string) (claudeGuestSnapshot, error)
-	usageActive    map[string]*claudeUsageCall
-	panelRunning   bool
-	panelUntil     time.Time
-	defaultGate    chan struct{}
-	loginNotice    string
-	defaultChecked time.Time
-	defaultReading claudeGuestSnapshot
-	defaultError   error
-	probe          func(context.Context, string) (claudeGuestSnapshot, error)
-	recoverLogin   func(context.Context, string, string, string) (claudeGuestSnapshot, error)
-	mu             sync.Mutex
-	lastPick       string
-	recent         map[string]claudeProjectPick
-	refreshing     map[string]*claudeRefresh
-	attempted      map[string]time.Time
+	usageProbe      func(context.Context, string, string) (claudeGuestSnapshot, error)
+	usageActive     map[string]*claudeUsageCall
+	panelRunning    bool
+	panelUntil      time.Time
+	defaultGate     chan struct{}
+	loginNotice     string
+	defaultChecked  time.Time
+	defaultReading  claudeGuestSnapshot
+	defaultError    error
+	probe           func(context.Context, string) (claudeGuestSnapshot, error)
+	recoverLogin    func(context.Context, string, string, string) (claudeGuestSnapshot, error)
+	mu              sync.Mutex
+	lastPick        string
+	recent          map[string]claudeProjectPick
+	refreshing      map[string]*claudeRefresh
+	attempted       map[string]time.Time
+	noticeProbe     func(context.Context, []string) (map[string][]claudeAccountNotice, error)
+	notices         map[string][]claudeAccountNotice
+	noticesKey      string
+	noticesAt       time.Time
+	noticesFetching bool
 }
 
 type claudeRefresh struct {
@@ -124,6 +135,24 @@ const claudeQuotaFresh = 15 * time.Minute
 func validClaudeID(id string) bool {
 	_, err := hex.DecodeString(id)
 	return len(id) == 24 && err == nil && strings.ToLower(id) == id
+}
+
+func validClaudeSubject(subject string) bool {
+	return len(subject) == 64 && strings.Trim(subject, "0123456789abcdef") == ""
+}
+
+func (list *claudeAccountList) dismissDefault(subject string) {
+	if !validClaudeSubject(subject) || slices.Contains(list.DismissedDefaults, subject) {
+		return
+	}
+	list.DismissedDefaults = append(list.DismissedDefaults, subject)
+}
+
+func (list *claudeAccountList) undismissDefault(subject string) {
+	if subject == "" || len(list.DismissedDefaults) == 0 {
+		return
+	}
+	list.DismissedDefaults = slices.DeleteFunc(list.DismissedDefaults, func(item string) bool { return item == subject })
 }
 
 func (s *Server) loadClaudeAccounts() (claudeAccountList, error) {
@@ -149,6 +178,12 @@ func (s *Server) loadClaudeAccounts() (claudeAccountList, error) {
 		if a.ProxyNodeID != "" && !validClaudeID(a.ProxyNodeID) || !validClaudeID(a.ID) || ids[a.ID] || a.Source != "managed" && a.Source != "default" || a.Source == "default" && (a.Email == "" || a.ProfileID != "") || a.ProfileID != "" && !validClaudeID(a.ProfileID) || len(a.HandoffGroup) > 64 {
 			return list, errors.New("Claude 账号文件含无效或重复的记录，请从备份恢复")
 		}
+		// Older quota probes could mark a Desktop-only identity as changed.
+		// Keep any historical readings, but discard the unbound probe status.
+		if a.CodeUnlinked {
+			a.Status = "signed_out"
+			a.UsageStatus, a.UsageCheckedAt = "", 0
+		}
 		ids[a.ID] = true
 		if a.Source == "managed" {
 			if profiles[a.guestID()] {
@@ -159,6 +194,11 @@ func (s *Server) loadClaudeAccounts() (claudeAccountList, error) {
 	}
 	if list.PendingLogin != "" && (!validClaudeID(list.PendingLogin) || ids[list.PendingLogin] || profiles[list.PendingLogin]) {
 		return list, errors.New("Claude 登录记录损坏，请恢复备份")
+	}
+	for _, subject := range list.DismissedDefaults {
+		if !validClaudeSubject(subject) {
+			return list, errors.New("Claude 账号文件含无效的已移除记录，请从备份恢复")
+		}
 	}
 	if err := list.validateDesktopBindings(); err != nil {
 		return list, err
@@ -224,6 +264,10 @@ func (list claudeAccountList) find(id string) *claudeAccount {
 
 func validClaudeLabel(label string) bool {
 	return label != "" && utf8.RuneCountInString(label) <= 64 && strings.IndexFunc(label, unicode.IsControl) < 0
+}
+
+func validDesktopLabel(label string) bool {
+	return label != "" && utf8.ValidString(label) && utf8.RuneCountInString(label) <= 100 && strings.IndexFunc(label, unicode.IsControl) < 0
 }
 
 func (list *claudeAccountList) change(input claudeAccountInput) error {
@@ -420,7 +464,7 @@ func (s *Server) selectClaudeAccount(requestedID string, login bool, workspace s
 	if requestedID != "" && requestedID != "auto" {
 		a := list.find(requestedID)
 		if a == nil || a.Status != "ready" || a.Email == "" {
-			return empty, errors.New("所选 Claude 账号需要重新登录")
+			return empty, errClaudeNeedsLogin
 		}
 		// Participation controls automatic scheduling only. The official runner
 		// checks this subject again in the launch directory, including defaults.
@@ -514,7 +558,7 @@ func (s *Server) allocateClaudeAccount(previous claudeAccountList, workspace str
 			return empty, err
 		}
 	}
-	active := s.mobileCLI.activeAccounts()
+	active := s.activeAccountRuns()
 	logins := make(map[string]bool)
 	for _, session := range s.terminals.snapshot() {
 		if session["closed"] == true {
@@ -541,7 +585,7 @@ func (s *Server) allocateClaudeAccount(previous claudeAccountList, workspace str
 	}
 	selected := pickClaudeAccount(list, active, logins, m.lastPick, preferred, now)
 	if selected == "" {
-		return empty, errors.New("暂无可分配的 Claude 账号。请在账号面板检查登录、参与状态和额度重置时间")
+		return empty, errNoClaudeAllocation
 	}
 	a := list.find(selected)
 	return claudeSelection{ID: selected, GuestID: a.guestID(), Subject: claudeIdentityHash(a.Email, a.Organization)}, nil

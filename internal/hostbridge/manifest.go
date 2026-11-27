@@ -24,6 +24,90 @@ type Contributes struct {
 	MCPServers  []MCPServer  `json:"mcpServers,omitempty"`
 	Views       []View       `json:"views,omitempty"`
 	URIHandlers []URIHandler `json:"uriHandlers,omitempty"`
+	Settings    []Setting    `json:"settings,omitempty"`
+	DesktopApps []DesktopApp `json:"desktopApps,omitempty"`
+}
+
+// Setting is a value the user enters for the plugin, such as an address or
+// an access token. Its program receives it in the environment variable Env.
+type Setting struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
+	// Type is one of SettingTypes.
+	Type     string `json:"type"`
+	Env      string `json:"env"`
+	Required bool   `json:"required,omitempty"`
+	// Default is used while the user has entered nothing. Not for secrets.
+	Default string `json:"default,omitempty"`
+	// Choices are the values a choice may take.
+	Choices []string `json:"choices,omitempty"`
+}
+
+// Types of setting. A secret is stored encrypted and never shown again.
+const (
+	SettingString  = "string"
+	SettingSecret  = "secret"
+	SettingBoolean = "boolean"
+	SettingChoice  = "choice"
+)
+
+// SettingTypes are the values a setting's type may take.
+var SettingTypes = []string{SettingString, SettingSecret, SettingBoolean, SettingChoice}
+
+// SettingValueLimit is the longest value a setting may hold.
+const SettingValueLimit = 8192
+
+// ValidSettingValue reports whether value can be given to a program in an
+// environment variable: not too long, and without NUL or line breaks.
+func ValidSettingValue(value string) bool {
+	return len(value) <= SettingValueLimit && !strings.ContainsAny(value, "\x00\r\n")
+}
+
+// settingsSince and floatingViewsSince are the first application version that
+// reads settings and view presentation fields; older ones reject manifests that
+// have them. 0.2.0 shipped before view presentation existed.
+var (
+	settingsSince      = [3]int{0, 2, 0}
+	floatingViewsSince = [3]int{0, 2, 1}
+)
+
+var settingEnv = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,63}$`)
+
+// reservedEnv are variables the application sets for every program itself.
+var reservedEnv = []string{"HOME", "USER", "LOGNAME", "SHELL", "PATH", "LANG", "LC_ALL", "TZ"}
+
+func (s Setting) check() error {
+	switch {
+	case !validID(s.ID):
+		return fmt.Errorf("settings: id %q is not valid", s.ID)
+	case s.Title == "" || len(s.Title) > 80:
+		return fmt.Errorf("settings %s: title is missing or too long", s.ID)
+	case len(s.Description) > 500:
+		return fmt.Errorf("settings %s: description is too long", s.ID)
+	case !slices.Contains(SettingTypes, s.Type):
+		return fmt.Errorf("settings %s: type must be string, secret, boolean or choice", s.ID)
+	case !settingEnv.MatchString(s.Env) || slices.Contains(reservedEnv, s.Env) || strings.HasPrefix(s.Env, "LD_") || strings.HasPrefix(s.Env, "DYLD_"):
+		return fmt.Errorf("settings %s: env %q must be uppercase letters, digits and underscores, and not one the application sets", s.ID, s.Env)
+	case !ValidSettingValue(s.Default):
+		return fmt.Errorf("settings %s: default is too long or has a line break", s.ID)
+	case s.Type == SettingSecret && s.Default != "":
+		return fmt.Errorf("settings %s: a secret has no default", s.ID)
+	case s.Type == SettingBoolean && s.Default != "" && s.Default != "true" && s.Default != "false":
+		return fmt.Errorf("settings %s: the default of a boolean is true or false", s.ID)
+	case s.Type != SettingChoice && len(s.Choices) > 0:
+		return fmt.Errorf("settings %s: choices are for type choice", s.ID)
+	case s.Type == SettingChoice && (len(s.Choices) == 0 || len(s.Choices) > 20):
+		return fmt.Errorf("settings %s: a choice needs one to twenty choices", s.ID)
+	case s.Type == SettingChoice && s.Default != "" && !slices.Contains(s.Choices, s.Default):
+		return fmt.Errorf("settings %s: default is not one of choices", s.ID)
+	}
+	for i, choice := range s.Choices {
+		if choice == "" || len(choice) > 80 || !ValidSettingValue(choice) || slices.Contains(s.Choices[:i], choice) {
+			return fmt.Errorf("settings %s: choice %q is empty, too long or repeated", s.ID, choice)
+		}
+	}
+	return nil
 }
 
 // MCPServer is a program that speaks MCP on its standard input and output.
@@ -34,7 +118,20 @@ type MCPServer struct {
 	Command []string `json:"command"`
 }
 
-// View is a page of the plugin's own.
+// Presentation modes for a plugin view.
+const (
+	ViewPresentationPage     = "page"
+	ViewPresentationFloating = "floating"
+)
+
+const (
+	floatingViewMinWidth  = 220
+	floatingViewMaxWidth  = 720
+	floatingViewMinHeight = 100
+	floatingViewMaxHeight = 720
+)
+
+// View is a page or floating panel of the plugin's own.
 type View struct {
 	ID    string `json:"id"`
 	Title string `json:"title"`
@@ -45,6 +142,11 @@ type View struct {
 	Server string `json:"server,omitempty"`
 	// OpenURLs are the address patterns the page may ask to have opened.
 	OpenURLs []string `json:"openUrls,omitempty"`
+	// Presentation is "page" (default) or "floating" for a draggable overlay.
+	Presentation string `json:"presentation,omitempty"`
+	// Width and Height are optional initial CSS pixel dimensions for a floating view.
+	Width  int `json:"width,omitempty"`
+	Height int `json:"height,omitempty"`
 }
 
 // URIHandler hands links of one scheme to a tool.
@@ -76,10 +178,12 @@ func validID(id string) bool { return pluginName.MatchString(id) && len(id) <= 4
 // validFile reports whether name is a path inside the plugin with one of the
 // extensions.
 func validFile(name string, extensions ...string) bool {
-	if name == "" || len(name) > 200 || path.IsAbs(name) || path.Clean(name) != name || strings.Contains(name, "\\") || name == ".." || strings.HasPrefix(name, "../") {
-		return false
-	}
-	return slices.Contains(extensions, strings.ToLower(path.Ext(name)))
+	return validRelative(name) && slices.Contains(extensions, strings.ToLower(path.Ext(name)))
+}
+
+// validRelative reports whether name is a clean path inside a directory.
+func validRelative(name string) bool {
+	return name != "" && len(name) <= 200 && !path.IsAbs(name) && path.Clean(name) == name && !strings.ContainsAny(name, "\\\x00\r\n") && name != ".." && !strings.HasPrefix(name, "../")
 }
 
 // validOpenURL reports whether pattern is https to a named host, or http to
@@ -203,6 +307,19 @@ func (m *Manifest) check() error {
 			return fmt.Errorf("views %s: icon must be a PNG or SVG file inside the plugin", view.ID)
 		case view.Server != "" && !slices.Contains(servers, view.Server):
 			return fmt.Errorf("views %s: server %q is not one of mcpServers", view.ID, view.Server)
+		case view.Presentation != "" && view.Presentation != ViewPresentationPage && view.Presentation != ViewPresentationFloating:
+			return fmt.Errorf("views %s: presentation must be page or floating", view.ID)
+		case (view.Width != 0 || view.Height != 0) && view.Presentation != ViewPresentationFloating:
+			return fmt.Errorf("views %s: width and height are only for floating views", view.ID)
+		case view.Width != 0 && (view.Width < floatingViewMinWidth || view.Width > floatingViewMaxWidth):
+			return fmt.Errorf("views %s: width must be between %d and %d", view.ID, floatingViewMinWidth, floatingViewMaxWidth)
+		case view.Height != 0 && (view.Height < floatingViewMinHeight || view.Height > floatingViewMaxHeight):
+			return fmt.Errorf("views %s: height must be between %d and %d", view.ID, floatingViewMinHeight, floatingViewMaxHeight)
+		}
+		if view.Presentation != "" || view.Width != 0 || view.Height != 0 {
+			if floor, ok := engineFloor(m.Engines.Cage); !ok || slices.Compare(floor[:], floatingViewsSince[:]) < 0 {
+				return fmt.Errorf("views %s: presentation needs engines.cage of at least %d.%d.%d", view.ID, floatingViewsSince[0], floatingViewsSince[1], floatingViewsSince[2])
+			}
 		}
 		for _, pattern := range view.OpenURLs {
 			if !validOpenURL(pattern) {
@@ -226,6 +343,27 @@ func (m *Manifest) check() error {
 		}
 		schemes = append(schemes, handler.Scheme)
 	}
+	if err := m.checkDesktopApps(schemes); err != nil {
+		return err
+	}
+	if len(m.Contributes.Settings) > 0 {
+		if floor, ok := engineFloor(m.Engines.Cage); !ok || slices.Compare(floor[:], settingsSince[:]) < 0 {
+			return fmt.Errorf("settings need engines.cage of at least %d.%d.%d", settingsSince[0], settingsSince[1], settingsSince[2])
+		}
+		if len(m.Contributes.Settings) > 20 {
+			return fmt.Errorf("at most twenty settings")
+		}
+	}
+	var settings, envs []string
+	for _, setting := range m.Contributes.Settings {
+		if err := setting.check(); err != nil {
+			return err
+		}
+		if slices.Contains(settings, setting.ID) || slices.Contains(envs, setting.Env) {
+			return fmt.Errorf("settings %s: id or env is repeated", setting.ID)
+		}
+		settings, envs = append(settings, setting.ID), append(envs, setting.Env)
+	}
 	for _, event := range m.ActivationEvents {
 		kind, id, _ := strings.Cut(event, ":")
 		if !(event == "onStartupFinished" || kind == "onView" && slices.Contains(views, id) || kind == "onUri" && slices.Contains(schemes, id)) {
@@ -235,14 +373,59 @@ func (m *Manifest) check() error {
 	return nil
 }
 
+// requiredEngineFloor is the lowest application version that supports every
+// contributed feature declared by the manifest, or zero when none impose one.
+func (m Manifest) requiredEngineFloor() [3]int {
+	var need [3]int
+	bump := func(floor [3]int) {
+		if slices.Compare(floor[:], need[:]) > 0 {
+			need = floor
+		}
+	}
+	if m.Contributes != nil {
+		if len(m.Contributes.Settings) > 0 {
+			bump(settingsSince)
+		}
+		for _, view := range m.Contributes.Views {
+			if view.Presentation != "" || view.Width != 0 || view.Height != 0 {
+				bump(floatingViewsSince)
+				break
+			}
+		}
+		if len(m.Contributes.DesktopApps) > 0 {
+			bump(desktopAppsSince)
+		}
+	}
+	return need
+}
+
 // EngineSatisfied reports whether the application at version meets the
-// plugin's engines range. A manifest without one, and a build without a
-// version, always do.
+// plugin's engines range and any minimum version required by its declared
+// features. A build without a version always does.
 func (m Manifest) EngineSatisfied(version string) bool {
-	if m.Engines == nil || version == "" {
+	if version == "" {
 		return true
 	}
-	return engineSatisfied(m.Engines.Cage, version)
+	if m.Engines != nil && !engineSatisfied(m.Engines.Cage, version) {
+		return false
+	}
+	if need := m.requiredEngineFloor(); need != ([3]int{}) {
+		return engineSatisfied(fmt.Sprintf(">=%d.%d.%d", need[0], need[1], need[2]), version)
+	}
+	return true
+}
+
+// engineFloor is the lowest version an engines range accepts.
+func engineFloor(spec string) ([3]int, bool) {
+	var floor [3]int
+	match := engineRange.FindStringSubmatch(spec)
+	if match == nil {
+		return floor, false
+	}
+	for i := range floor {
+		floor[i], _ = strconv.Atoi(match[i+2])
+	}
+	return floor, true
 }
 
 func engineSatisfied(spec, version string) bool {

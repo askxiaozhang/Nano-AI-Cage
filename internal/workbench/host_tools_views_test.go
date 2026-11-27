@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/sylvinus/agent-vm/internal/hostbridge"
+	"github.com/sylvinus/agent-vm/internal/version"
 )
 
 // A plugin's page is served only under its own secret path, only from
@@ -31,9 +32,7 @@ func TestPluginViewFilesAreServedConfined(t *testing.T) {
 	write("view/index.html", "<p>page</p>")
 	write("view/app.js", "1")
 	write("secret.txt", "outside the page's folder")
-	if err := os.Symlink(filepath.Join(dir, "secret.txt"), filepath.Join(dir, "view", "link.js")); err != nil {
-		t.Fatal(err)
-	}
+	linkErr := os.Symlink(filepath.Join(dir, "secret.txt"), filepath.Join(dir, "view", "link.js"))
 	get := func(path string) *httptest.ResponseRecorder {
 		recorder := httptest.NewRecorder()
 		s.servePluginView(recorder, httptest.NewRequest("GET", path, nil))
@@ -73,6 +72,9 @@ func TestPluginViewFilesAreServedConfined(t *testing.T) {
 		"a folder":           base + "sub/",
 		"without the folder": strings.TrimSuffix(base, "/"),
 	} {
+		if name == "a link out" && linkErr != nil {
+			continue
+		}
 		if response := get(path); response.Code != 404 {
 			t.Errorf("%s: %d %q", name, response.Code, response.Body)
 		}
@@ -120,6 +122,9 @@ func TestPluginViewFilesAreServedConfined(t *testing.T) {
 			t.Errorf("address %q, want %q", plugin.Contributes.Views[0].URL, base)
 		}
 	}
+	if linkErr != nil {
+		t.Skip("symlink unavailable, the link out of the folder was not checked: " + linkErr.Error())
+	}
 }
 
 // A page's call needs a page of an enabled plugin, a server behind it, and
@@ -156,4 +161,39 @@ func TestPluginViewCallsAreChecked(t *testing.T) {
 			t.Errorf("%s: %d %s", name, status, body)
 		}
 	}
+}
+
+func TestFloatingPluginViewMetadataExposed(t *testing.T) {
+	// The view needs the first version that reads presentation, whatever
+	// version this checkout builds.
+	built := version.Version
+	version.Version = "0.2.1"
+	t.Cleanup(func() { version.Version = built })
+	s := &Server{profile: t.TempDir(), token: "test-token-test-token-test-token-0123", origin: "http://localhost:1234"}
+	dir := filepath.Join(s.hostPluginDir(), "hud")
+	if err := os.MkdirAll(filepath.Join(dir, "view"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"name":"hud","version":"0.2.0","description":"Floating HUD.","permissions":[],"engines":{"cage":">=0.2.1"},"kind":"guest",
+		"contributes":{"views":[{"id":"hud","title":"HUD","entry":"view/index.html","presentation":"floating","width":312,"height":264}]}}`
+	if err := os.WriteFile(filepath.Join(dir, hostbridge.ManifestFile), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "view", "index.html"), []byte("<p>hud</p>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, plugin := range s.hostToolsView().Plugins {
+		if plugin.Name != "hud" {
+			continue
+		}
+		if plugin.Contributes == nil || len(plugin.Contributes.Views) != 1 {
+			t.Fatalf("views: %+v", plugin.Contributes)
+		}
+		v := plugin.Contributes.Views[0]
+		if v.Presentation != hostbridge.ViewPresentationFloating || v.Width != 312 || v.Height != 264 || v.URL == "" {
+			t.Fatalf("floating view = %+v", v)
+		}
+		return
+	}
+	t.Fatal("hud plugin not found in hostToolsView")
 }

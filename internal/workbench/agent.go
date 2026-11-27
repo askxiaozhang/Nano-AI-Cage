@@ -9,10 +9,10 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
-	"time"
 
 	"github.com/sylvinus/agent-vm/internal/diagnostics"
 	"github.com/sylvinus/agent-vm/internal/remotehost"
@@ -57,20 +57,22 @@ func AgentOperations() []AgentOperation {
 	post("account.create", "Create an account only on an empty profile; user chooses the password. Returns a recovery_key once; deliver it privately to the user for secure storage", "/api/account/create", object(map[string]string{"username": "string", "password": "string", "confirm_password": "string", "avatar": "string"}))
 	post("account.unlock", "Unlock using a user-provided password via private input", "/api/account/unlock", object(map[string]string{"password": "string"}))
 	get("settings.get", "Read settings without proxy credentials", "/api/settings")
-	post("settings.patch", "Merge specified fields under the operation lock; dry_run validates without writing", "/api/agent/settings", object(map[string]string{"patch": "object", "dry_run": "boolean"}))
+	post("settings.patch", "Merge specified fields under the operation lock; dry_run validates without writing; save_static_draft saves a pending non-mainland static IP baseline while keeping egress closed if live exit probing fails", "/api/agent/settings", object(map[string]string{"patch": "object", "dry_run": "boolean", "save_static_draft": "boolean"}))
 	// Include the production Settings schema inside the patch field.
 	ops[len(ops)-1].InputSchema["properties"].(map[string]any)["patch"] = from(Settings{})
 	ops[len(ops)-1].InputSchema["properties"].(map[string]any)["patch"].(map[string]any)["properties"].(map[string]any)["exit_policy"] = object(map[string]string{"mode": "string", "scope": "string", "ip": "string", "country_code": "string", "region": "string", "city": "string"})
 	post("settings.restore", "Restore the saved previous settings and restart the environment; inspect status and obtain permission to interrupt work first", "/api/restore", object(nil))
 	get("proxy.status", "List source and node IDs without subscription URLs or node secrets", "/api/proxy")
 	proxy := from(proxyInput{})
-	for _, action := range []string{"import", "refresh", "edit", "delete", "select", "route", "restart", "stop"} {
-		post("proxy."+action, "Proxy operation; import creates a source, refresh updates an existing source. Read state before retrying. select/route applies the route", "/api/proxy/"+action, proxy)
+	// The operation name already selects the action.
+	delete(proxy["properties"].(map[string]any), "action")
+	for _, action := range []string{"import", "refresh", "edit", "edit-node", "delete", "select", "route", "restart", "stop"} {
+		post("proxy."+action, "Proxy operation; import creates a source from name plus content (the whole Clash/Mihomo YAML or share links) or url (HTTPS subscription), refresh updates an existing source (a local source needs new content and keeps node IDs by name), edit-node changes server/server_port of a local node only. Read state before retrying. select/route applies the route", "/api/proxy/"+action, proxy)
 	}
 	get("guest.options", "Whether the environment is new, and any installation an earlier version left unfinished", "/api/environment/guest-systems")
-	get("initialization.status", "Read initial setup state", "/api/environment/initialization")
-	post("initialization.set", "action: begin, install or complete; complete requires verified readiness", "/api/environment/initialization", object(map[string]string{"action": "string"}))
-	post("environment.start", "Start or resume installation. Omit guest_system for an existing environment; use guest.options for supported choices", "/api/start", from(guestInstallRequest{}))
+	get("initialization.status", "Read initial setup state; desktop_active indicates desktop first-run onboarding is active", "/api/environment/initialization")
+	post("initialization.set", "action: begin, install, release or complete; release lets the agent start the environment while desktop first-run onboarding is open; complete requires verified readiness", "/api/environment/initialization", object(map[string]string{"action": "string"}))
+	post("environment.start", "Start or resume installation. Omit guest_system for an existing environment; returns state_conflict while desktop first-run onboarding is active unless initialization.set release was called", "/api/start", from(guestInstallRequest{}))
 	post("environment.stop", "Stop the environment and active terminals; preserves persistent data", "/api/stop", object(nil))
 	get("environment.versions", "Read installed component and tool versions", "/api/environment/versions")
 	post("environment.update", "Update guest components; may restart guest services", "/api/environment/update", object(nil))
@@ -100,32 +102,36 @@ func AgentOperations() []AgentOperation {
 	get("appearance.get", "Read complete appearance and saved themes", "/api/appearance")
 	post("appearance.set", "Save complete appearance using the workbench validator", "/api/appearance", from(Appearance{}))
 	get("appearance.codex", "Read the same local Codex appearance import as the UI", "/api/appearance/codex")
+	post("appearance.guest-theme", "Record and sync the resolved light or dark appearance variant to the guest environment when guest theme sync is enabled", "/api/appearance/guest-theme", object(map[string]string{"variant": "string"}))
 	post("settings.probe", "Probe actual exit location for a complete settings draft", "/api/settings/probe", from(Settings{}))
+	post("settings.dns_check", "Test configured encrypted DNS endpoints through the selected proxy for a complete settings draft", "/api/settings/dns-check", from(Settings{}))
 	get("proxy.connections", "Inspect live proxy connections", "/api/proxy/connections")
 	get("proxy.logs", "Inspect proxy logs", "/api/proxy/logs")
-	post("proxy.delay", "Measure one proxy node", "/api/proxy/delay", object(map[string]string{"node_id": "string"}))
+	post("proxy.delay", "Measure one node (node_id) or up to 300 nodes four at a time (node_ids); returns per-node results and the fastest working node as best without changing the selection", "/api/proxy/delay", object(map[string]string{"node_id": "string", "node_ids": "array"}))
 	add("guest.reselect", "Clear only the same unstarted installation the UI can reselect", "DELETE", "/api/environment/guest-systems", object(map[string]string{"id": "string"}))
-	get("claude-accounts.get", "Read account roster, quotas and scheduling", "/api/claude-accounts")
+	get("claude-accounts.get", "Read account roster, quotas, scheduling and per-account setup notices", "/api/claude-accounts")
 	post("claude-accounts.change", "Apply the same join, cancel, update, scheduling, refresh and removal actions as the UI", "/api/claude-accounts", from(claudeAccountInput{}))
 	get("vault.get", "List metadata; passwords remain hidden exactly as in the UI", "/api/vault")
 	post("vault.change", "Save/delete/unblock; reveal requires the same account_password reauthentication as the UI", "/api/vault", object(map[string]string{"action": "string", "entry": "object", "id": "string", "origin": "string", "account_password": "string"}))
 	ops[len(ops)-1].InputSchema["properties"].(map[string]any)["entry"] = from(vaultEntry{})
 	post("vault.browser", "Use the browser vault's existing save/fill/block actions", "/api/vault/browser", from(vaultBrowserInput{}))
-	get("mobile.get", "Inspect phone pairing", "/api/mobile-pair")
-	post("mobile.pair", "Generate the same phone pairing invitation", "/api/mobile-pair", object(map[string]string{"admin": "string", "relay": "string"}))
-	add("mobile.remove", "Remove the same paired device", "DELETE", "/api/mobile-pair", object(nil))
+	get("mobile.get", "Inspect paired mobile devices", "/api/mobile-pair")
+	post("mobile.pair", "Generate a phone pairing invitation", "/api/mobile-pair", object(map[string]string{"admin": "string", "relay": "string"}))
+	add("mobile.remove", "Remove one paired device by id, or all paired devices when id is omitted", "DELETE", "/api/mobile-pair", object(map[string]string{"id": "string"}))
 	get("tailscale.get", "Read guest private-network state", "/api/tailscale")
-	for _, action := range []string{"install", "connect", "login", "disconnect", "logout", "add-key", "remove-key"} {
+	for _, action := range []string{"install", "connect", "login", "disconnect", "logout", "control-server", "add-key", "remove-key"} {
 		schema := object(nil)
 		if action == "add-key" || action == "remove-key" {
 			schema = object(map[string]string{"key": "string"})
+		} else if action == "control-server" {
+			schema = object(map[string]string{"control_url": "string"})
 		}
 		post("tailscale."+action, "Run the same Tailscale action as the workbench", "/api/tailscale/"+action, schema)
 	}
 	get("browser.preferences.get", "Read the browser homepage", "/api/browser/preferences")
 	post("browser.preferences.set", "Apply and persist the browser homepage with the same rollback as the UI", "/api/browser/preferences", object(map[string]string{"browser_home_url": "string"}))
 	get("browser.tabs", "Read browser tabs and state", "/api/browser/tabs")
-	for _, action := range []string{"settings", "cookies", "extensions", "internal-page", "info", "new", "activate", "close", "navigate", "back", "forward", "reload", "editor", "editor-restart", "split"} {
+	for _, action := range []string{"settings", "cookies", "history", "extensions", "internal-page", "info", "new", "activate", "close", "navigate", "back", "forward", "reload", "editor", "editor-restart", "split"} {
 		post("browser."+action, "Use the browser's existing workbench action", "/api/browser/"+action, from(browserInput{}))
 	}
 	get("favorites.get", "Read bookmarks and folders", "/api/favorites")
@@ -139,7 +145,7 @@ func AgentOperations() []AgentOperation {
 	for _, action := range []string{"candidate", "commit", "cancel", "disconnect", "local-stop"} {
 		post("client."+action, "Use the desktop chooser's same explicit connection/candidate protocol", "/api/client/"+action, from(switchRequest{}))
 	}
-	post("client.trusted-login", "Use create/resume/enable/disable/protect through the desktop's native trusted-login owner", "/api/client/trusted-login", object(map[string]string{"action": "string", "password": "string", "connection_id": "string"}))
+	post("client.trusted-login", "Use resume/enable/disable/protect through the desktop's native trusted-login owner; a fresh profile registers with account.create first", "/api/client/trusted-login", object(map[string]string{"action": "string", "password": "string", "connection_id": "string"}))
 	post("native.submit", "Queue an existing native bridge action or clientPreferences request for the desktop window; use desktop scope", "/api/agent/native", object(map[string]string{"request": "object", "connection_id": "string"}))
 
 	get("diagnostics.status", "Read log collection status", "/api/diagnostics")
@@ -156,12 +162,29 @@ type AgentError struct {
 
 func (e *AgentError) Error() string { return e.Message }
 
+const accountMissingRecovery = "account-missing"
+
+// agentResponseError maps a controller response. Its recovery header names a
+// more specific next step than the status code alone.
+func agentResponseError(code int, recovery string) *AgentError {
+	e := agentHTTPError(code)
+	if code == http.StatusLocked && recovery == accountMissingRecovery {
+		e.Code = "account_missing"
+		e.Message = "Create the Cage account before configuring the environment."
+		e.NextAction = "account.create"
+	}
+	return e
+}
+
 func agentHTTPError(code int) *AgentError {
 	e := &AgentError{Code: "request_rejected", Message: "Cage rejected the operation. Check the input and run doctor.", NextAction: "doctor", HTTPStatus: code}
 	switch code {
 	case 401:
+		// service.start reuses a running controller, so it cannot renew a
+		// rejected session.
 		e.Code = "authentication_failed"
-		e.NextAction = "service.start"
+		e.Message = "The controller rejected this session. Reopen the workbench from the Cage app, then retry."
+		e.NextAction = "open_desktop"
 	case 423:
 		e.Code = "account_locked"
 		e.Message = "Unlock Cage before configuring the environment."
@@ -194,31 +217,43 @@ func agentHTTPError(code int) *AgentError {
 // or stops an existing controller as a side effect of an agent call.
 func AgentStartService(ctx context.Context, configPath string) error {
 	profile := filepath.Dir(configPath)
-	c, err := connectController(profile)
-	if err == nil {
-		defer c.close()
-		return agentCheckController(c, configPath)
-	}
-	if !errors.Is(err, errControllerUnavailable) || !controllerLockFree(profile) {
+	// A simultaneous start can hold the profile lock before publishing its
+	// control record. Reuse that controller once it is ready.
+	c, err := waitControllerReady(ctx, profile)
+	if errors.Is(err, errControllerUnavailable) {
+		c, err = startController(ctx, configPath)
+		if err != nil {
+			if ctx.Err() != nil {
+				return &AgentError{Code: "service_start_timeout", Message: "The controller has not become ready. It may still be starting.", NextAction: "doctor", Retryable: true}
+			}
+			return &AgentError{Code: "service_start_failed", Message: "Cage could not start its controller.", NextAction: "doctor"}
+		}
+	} else if err != nil {
 		return &AgentError{Code: "service_unavailable", Message: "The controller cannot be authenticated. Preserve its data and inspect diagnostics.", NextAction: "doctor"}
 	}
-	if err := startController(configPath); err != nil {
-		return &AgentError{Code: "service_start_failed", Message: "Cage could not start its controller.", NextAction: "doctor"}
+	defer c.close()
+	return agentCheckController(c, configPath)
+}
+
+// A native launcher can spell the same profile directory through a system
+// alias (such as /tmp on macOS). Keep the configuration filename pinned.
+func sameControllerConfig(a, b string) bool {
+	if a == "" || b == "" {
+		return false
 	}
-	timer := time.NewTicker(100 * time.Millisecond)
-	defer timer.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return &AgentError{Code: "service_start_timeout", Message: "The controller has not become ready. It may still be starting.", NextAction: "doctor", Retryable: true}
-		case <-timer.C:
-			c, err := connectController(profile)
-			if err == nil {
-				defer c.close()
-				return agentCheckController(c, configPath)
-			}
-		}
+	a, b = filepath.Clean(a), filepath.Clean(b)
+	if a == b {
+		return true
 	}
+	if filepath.Base(a) != filepath.Base(b) {
+		return false
+	}
+	left, err := os.Stat(filepath.Dir(a))
+	if err != nil {
+		return false
+	}
+	right, err := os.Stat(filepath.Dir(b))
+	return err == nil && os.SameFile(left, right)
 }
 
 func agentCheckController(c *controllerClient, configPath string) error {
@@ -226,7 +261,7 @@ func agentCheckController(c *controllerClient, configPath string) error {
 	if err != nil || !want.matches(c.launch.Controller) || c.launch.DesktopGateway || c.launch.ClientOnly {
 		return &AgentError{Code: "controller_mismatch", Message: "Use the CLI shipped with the running workload. No controller was replaced.", NextAction: "open_desktop"}
 	}
-	if filepath.Clean(c.launch.ConfigPath) != filepath.Clean(configPath) {
+	if !sameControllerConfig(c.launch.ConfigPath, configPath) {
 		return &AgentError{Code: "config_path_mismatch", Message: "This directory's controller uses a different configuration filename. Use its original absolute config path.", NextAction: "doctor"}
 	}
 	return nil
@@ -235,7 +270,7 @@ func agentCheckController(c *controllerClient, configPath string) error {
 func agentConnect(ctx context.Context, configPath string) (*controllerClient, error) {
 	c, err := connectController(filepath.Dir(configPath))
 	if err != nil {
-		return nil, &AgentError{Code: "service_unavailable", Message: "The local Cage controller is unavailable. Run service.start or doctor.", NextAction: "service.start"}
+		return nil, &AgentError{Code: "service_unavailable", Message: "The local Cage controller is unavailable. Run the top-level command cage agent service.start (not call), open the Cage app, or run doctor.", NextAction: "service.start"}
 	}
 	fail := func(err error) (*controllerClient, error) { c.close(); return nil, err }
 	if err := agentCheckController(c, configPath); err != nil {
@@ -324,8 +359,9 @@ func agentRedact(data string) string {
 
 func (s *Server) agentSettings(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Patch  map[string]json.RawMessage `json:"patch"`
-		DryRun bool                       `json:"dry_run"`
+		Patch           map[string]json.RawMessage `json:"patch"`
+		DryRun          bool                       `json:"dry_run"`
+		SaveStaticDraft bool                       `json:"save_static_draft"`
 	}
 	if !readJSON(w, r, &in) {
 		return
@@ -385,12 +421,12 @@ func (s *Server) agentSettings(w http.ResponseWriter, r *http.Request) {
 		jsonReply(w, settingsView(v.Config, v.Preferences))
 		return
 	}
-	s.launch(w, "settings", func() error {
+	s.launchRequest(w, r, "settings", func() error {
 		v, err := propose()
 		if err != nil {
 			return err
 		}
-		return s.apply(v, true)
+		return s.applyWithOptions(v, true, in.SaveStaticDraft)
 	})
 }
 

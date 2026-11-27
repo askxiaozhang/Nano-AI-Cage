@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -43,6 +44,7 @@ type Source struct {
 	Usage     string      `json:"usage,omitempty"`
 	Nodes     []Node      `json:"nodes"`
 	Skipped   []NodeIssue `json:"skipped,omitempty"`
+	NodeDNS   []string    `json:"node_dns,omitempty"`
 }
 type Store struct {
 	Version      int                          `json:"version"`
@@ -51,8 +53,41 @@ type Store struct {
 	Revision     string                       `json:"revision"`
 	Selected     string                       `json:"selected"`
 	Chain        []string                     `json:"chain,omitempty"`
+	RouteHops    []RouteHop                   `json:"route_hops,omitempty"`
 	Sources      []Source                     `json:"sources"`
 	ExitPolicies map[string]exitpolicy.Policy `json:"exit_policies,omitempty"`
+	// GuestDNS and BootstrapDNS copy the Cage DNS settings when a route is
+	// applied, so a core restarted from this store keeps using them.
+	GuestDNS     []string `json:"guest_dns,omitempty"`
+	BootstrapDNS []string `json:"bootstrap_dns,omitempty"`
+}
+
+// NodeResolvers resolve proxy server names on the host network.
+func (s Store) NodeResolvers() []string {
+	if len(s.BootstrapDNS) > 0 {
+		return append([]string(nil), s.BootstrapDNS...)
+	}
+	return BootstrapDNSURLs()
+}
+
+// CoreDNS is the DoH list the core resolves with through the selected route:
+// the guest DNS endpoints copied when the route was applied.
+func (s Store) CoreDNS() []string {
+	if len(s.GuestDNS) == 0 {
+		return []string{"https://1.1.1.1/dns-query"}
+	}
+	return append([]string(nil), s.GuestDNS...)
+}
+
+// coreNameservers are the core's own resolvers, queried through the selected
+// route like guest DNS. They use the same endpoints as guest DNS.
+func (s Store) coreNameservers() []string {
+	list := s.CoreDNS()
+	out := make([]string, 0, len(list))
+	for _, endpoint := range list {
+		out = append(out, endpoint+"#"+Group)
+	}
+	return out
 }
 
 func Token() string {
@@ -103,18 +138,31 @@ func legacyWindowsSocket(profile string) string {
 	return filepath.Join(os.TempDir(), fmt.Sprintf("cage-proxy-%x", h[:8]), "control.sock")
 }
 func Load(profile string) (Store, error) {
-	var s Store
+	b, missing, err := readStore(profile)
+	if err != nil {
+		return Store{}, err
+	}
+	return parseStore(b, missing)
+}
+
+// readStore returns the stored bytes; missing reports a store not yet created.
+func readStore(profile string) (b []byte, missing bool, err error) {
 	f, err := os.Open(filepath.Join(Dir(profile), "sources.json"))
 	if os.IsNotExist(err) {
-		return Store{Version: 1, Port: 17896, Auth: Token(), Sources: []Source{}}, nil
+		return nil, true, nil
 	}
 	if err != nil {
-		return s, err
+		return nil, false, err
 	}
 	defer f.Close()
-	b, err := io.ReadAll(io.LimitReader(f, maxStoreSize+1))
-	if err != nil {
-		return s, err
+	b, err = io.ReadAll(io.LimitReader(f, maxStoreSize+1))
+	return b, false, err
+}
+
+func parseStore(b []byte, missing bool) (Store, error) {
+	var s Store
+	if missing {
+		return Store{Version: 1, Port: 17896, Auth: Token(), Sources: []Source{}}, nil
 	}
 	if len(b) > maxStoreSize || json.Unmarshal(b, &s) != nil || s.Version != 1 || s.Port < 1024 || s.Port > 65535 || len(s.Auth) != 48 {
 		return s, errors.New("Cage 代理配置无效，请恢复私有配置备份")
@@ -173,28 +221,50 @@ func (s Store) Count() int {
 	return n
 }
 func (s *Store) Import(name, rawURL string, data []byte, id string, interval int, usage string) error {
+	_, err := s.ImportWithPruned(name, rawURL, data, id, interval, usage)
+	return err
+}
+
+// ImportWithPruned imports or refreshes a source. When refreshing a source that
+// supplies nodes for a custom auto-switch relay pool, removed candidates are
+// pruned automatically as long as at least one usable candidate remains; the
+// pruned count is returned so the caller can inform the user.
+func (s *Store) ImportWithPruned(name, rawURL string, data []byte, id string, interval int, usage string) (int, error) {
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > 100 {
-		return errors.New("请填写 1–100 字节的来源名称")
+		return 0, errors.New("请填写 1–100 字节的来源名称")
 	}
 	if interval < 0 || interval > 168 {
-		return errors.New("更新间隔应为 0–168 小时，0 表示手动更新")
+		return 0, errors.New("更新间隔应为 0–168 小时，0 表示手动更新")
 	}
 	if id == "" {
 		id = Token()[:16]
 	}
 	nodes, skipped, err := parseNodes(data, id)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	src := Source{ID: id, Name: name, URL: rawURL, Interval: interval, Updated: time.Now(), Attempted: time.Now(), Nodes: nodes, Usage: usage, Skipped: skipped}
+	nodeDNS, err := subscriptionNodeDNS(data)
+	if err != nil {
+		return 0, err
+	}
+	src := Source{ID: id, Name: name, URL: rawURL, Interval: interval, Updated: time.Now(), Attempted: time.Now(), Nodes: nodes, Usage: usage, Skipped: skipped, NodeDNS: nodeDNS}
 	for i := range s.Sources {
 		if s.Sources[i].ID == id {
+			if len(s.RouteHops) > 0 {
+				nextHops, pruned, err := s.refreshRouteHopsForSource(i, src)
+				if err != nil {
+					return 0, err
+				}
+				s.Sources[i] = src
+				s.RouteHops = nextHops
+				return pruned, nil
+			}
 			// Refresh must retain every hop of the saved route, including legacy
 			// node-level dialers. A partial import cannot shorten a working chain.
 			route, routeErr := s.Route()
-			if s.Selected != "" && routeErr != nil {
-				return routeErr
+			if s.Selected != "" && routeErr != nil && !errors.Is(routeErr, ErrLocalProxyNode) {
+				return 0, routeErr
 			}
 			available := make(map[string]bool, len(nodes))
 			for _, n := range nodes {
@@ -213,15 +283,15 @@ func (s *Store) Import(name, rawURL string, data []byte, id string, interval int
 							break
 						}
 					}
-					return fmt.Errorf("订阅更新移除或跳过了当前出口或中转节点 %q：%s；原配置已保留，请先应用其他节点再更新", old.Name, reason)
+					return 0, fmt.Errorf("订阅更新移除或跳过了当前出口或中转节点 %q：%s；原配置已保留，请先应用其他节点再更新", old.Name, reason)
 				}
 			}
 			s.Sources[i] = src
-			return nil
+			return 0, nil
 		}
 	}
 	s.Sources = append(s.Sources, src)
-	return nil
+	return 0, nil
 }
 
 func unsafeOption(v any) bool {
@@ -265,6 +335,25 @@ func unsafeField(key string, value any) bool {
 // Route returns the actual hops from entry to exit. Explicit UI chains override
 // dialers at runtime without modifying subscription nodes or their credentials.
 func (s Store) Route() ([]string, error) {
+	return s.route(s.BlockedNodes())
+}
+
+func (s Store) route(blocked map[string]string) ([]string, error) {
+	if len(s.RouteHops) > 0 {
+		hops, err := s.resolveRoute(blocked, 1)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]string, len(hops))
+		for i, hop := range hops {
+			out[i] = hop.targetName()
+		}
+		return out, nil
+	}
+	return s.routeLegacy(blocked)
+}
+
+func (s Store) routeLegacy(blocked map[string]string) ([]string, error) {
 	if _, ok := s.Find(s.Selected); !ok {
 		return nil, errors.New("请先选择有效的最终出口")
 	}
@@ -282,7 +371,7 @@ func (s Store) Route() ([]string, error) {
 			}
 			seen[id] = true
 		}
-		return append([]string(nil), s.Chain...), nil
+		return s.checkRouteNodes(append([]string(nil), s.Chain...), blocked)
 	}
 	var reversed []string
 	seen := map[string]bool{}
@@ -298,24 +387,27 @@ func (s Store) Route() ([]string, error) {
 	for i, j := 0, len(reversed)-1; i < j; i, j = i+1, j-1 {
 		reversed[i], reversed[j] = reversed[j], reversed[i]
 	}
-	return reversed, nil
+	return s.checkRouteNodes(reversed, blocked)
 }
 
 func (s Store) Runtime(profile string) ([]byte, error) {
-	if _, err := s.Route(); err != nil {
+	return s.runtimeWithSocket(Socket(profile))
+}
+
+func (s Store) runtimeWithSocket(socketPath string) ([]byte, error) {
+	blocked := s.BlockedNodes()
+	hops, err := s.resolveRoute(blocked, 1)
+	if err != nil {
 		return nil, err
 	}
-	dialers := map[string]string{}
-	for i, id := range s.Chain {
-		dialers[id] = ""
-		if i > 0 {
-			dialers[id] = s.Chain[i-1]
-		}
-	}
+	dialers := hopDialers(hops, len(s.RouteHops) > 0 || len(s.Chain) > 0)
 	proxies := []map[string]any{}
 	originals := map[string]map[string]any{}
 	for _, src := range s.Sources {
 		for _, n := range src.Nodes {
+			if blocked[n.ID] != "" {
+				continue
+			}
 			config := make(map[string]any, len(n.Config))
 			for key, value := range n.Config {
 				config[key] = value
@@ -337,8 +429,22 @@ func (s Store) Runtime(profile string) ([]byte, error) {
 	}
 	// Infrastructure DNS bootstraps only the core's server domains. Guest DNS
 	// remains behind Cage Egress, and there is no host-system resolver fallback.
-	dns := map[string]any{"enable": true, "ipv6": false, "use-hosts": false, "use-system-hosts": false, "default-nameserver": BootstrapDNSURLs(), "proxy-server-nameserver": BootstrapDNSURLs(), "nameserver": []string{"https://1.1.1.1/dns-query#" + Group}}
-	config := map[string]any{"mixed-port": s.Port, "bind-address": "127.0.0.1", "allow-lan": false, "skip-auth-prefixes": []string{}, "mode": "rule", "ipv6": false, "log-level": "warning", "find-process-mode": "off", "external-controller-unix": Socket(profile), "tun": map[string]any{"enable": false}, "dns": dns, "geo-auto-update": false, "profile": map[string]any{"store-selected": false}, "proxy-groups": []any{map[string]any{"name": Group, "type": "select", "proxies": []string{s.Selected}}}}
+	// Top-level ipv6 (mihomo v1.19.33: resolver.DisableIPv6 = !ipv6, global to
+	// the core) also makes every proxy server domain resolve AAAA and dial over
+	// IPv6. It is enabled only when a node on the selected route uses a
+	// literal IPv6 server address, so the core can dial that hop; other loaded
+	// nodes never turn it on. dns.ipv6 only controls AAAA answers of the core's
+	// own DNS listener (none is configured) and stays false. Cage Egress keeps
+	// blocking all guest IPv6 and enforcing IPv4 exits.
+	dns := map[string]any{"enable": true, "ipv6": false, "use-hosts": false, "use-system-hosts": false, "default-nameserver": s.NodeResolvers(), "proxy-server-nameserver": s.NodeResolvers(), "nameserver": s.coreNameservers()}
+	policies, err := s.sourceDNSPolicies(blocked)
+	if err != nil {
+		return nil, err
+	}
+	if len(policies) > 0 {
+		dns["proxy-server-nameserver-policy"] = policies
+	}
+	config := map[string]any{"mixed-port": s.Port, "bind-address": "127.0.0.1", "allow-lan": false, "skip-auth-prefixes": []string{}, "mode": "rule", "ipv6": resolvedRouteHasIPv6Server(hops, originals), "log-level": "warning", "find-process-mode": "off", "external-controller-unix": socketPath, "tun": map[string]any{"enable": false}, "dns": dns, "geo-auto-update": false, "profile": map[string]any{"store-selected": false}, "proxy-groups": s.relayProxyGroups(hops)}
 	// An explicit environment chain can override imported dialers. Named
 	// account routes retain the node's imported chain, including dependent hops.
 	targets := map[string]string{}
@@ -371,6 +477,9 @@ func (s Store) Runtime(profile string) ([]byte, error) {
 	rules := []string{"IN-USER,cage," + Group}
 	for _, src := range s.Sources {
 		for _, n := range src.Nodes {
+			if blocked[n.ID] != "" {
+				continue
+			}
 			user := nodeUser(n.ID)
 			auth = append(auth, user+":"+s.nodePassword(n.ID))
 			rules = append(rules, "IN-USER,"+user+","+accountTarget(n.ID))
@@ -383,4 +492,18 @@ func (s Store) Runtime(profile string) ([]byte, error) {
 	// protocol and TLS setup into the node's displayed HTTP latency.
 	config["unified-delay"] = true
 	return yaml.Marshal(config)
+}
+
+func routeHasIPv6Server(route []string, nodes map[string]map[string]any) bool {
+	for _, id := range route {
+		server, _ := nodes[id]["server"].(string)
+		server = strings.TrimSpace(server)
+		if strings.HasPrefix(server, "[") && strings.HasSuffix(server, "]") {
+			server = server[1 : len(server)-1]
+		}
+		if addr, err := netip.ParseAddr(server); err == nil && addr.Is6() && !addr.Is4In6() {
+			return true
+		}
+	}
+	return false
 }

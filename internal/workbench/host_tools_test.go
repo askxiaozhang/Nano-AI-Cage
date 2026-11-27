@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/sylvinus/agent-vm/internal/hostbridge"
+	"github.com/sylvinus/agent-vm/internal/version"
 )
 
 func TestHostToolDirsListsTheCurrentProjectFirst(t *testing.T) {
@@ -143,6 +144,14 @@ func TestHostToolsRelayCarriesAToolCall(t *testing.T) {
 	if !strings.Contains(string(called), "relayed") {
 		t.Fatalf("call: %s", called)
 	}
+	promptsListed, _ := json.Marshal(exchange(`{"jsonrpc":"2.0","id":4,"method":"prompts/list"}`, 4))
+	if !strings.Contains(string(promptsListed), `"commands"`) {
+		t.Fatalf("prompts: %s", promptsListed)
+	}
+	promptGot, _ := json.Marshal(exchange(`{"jsonrpc":"2.0","id":5,"method":"prompts/get","params":{"name":"commands","arguments":{"request":"check pwd"}}}`, 5))
+	if !strings.Contains(string(promptGot), "run_command") || !strings.Contains(string(promptGot), "check pwd") {
+		t.Fatalf("prompt get: %s", promptGot)
+	}
 }
 
 // With the server gone the client gets an error for its request rather
@@ -237,10 +246,46 @@ func TestHostToolsViewListsPluginFolders(t *testing.T) {
 	if byName["broken"].Problem == "" || byName["renamed"].Problem == "" || !byName["commands"].BuiltIn {
 		t.Fatalf("plugins %+v", view.Plugins)
 	}
+	if len(byName["commands"].Prompts) != 1 || byName["commands"].Prompts[0].Name != "commands" {
+		t.Fatalf("commands prompts %+v", byName["commands"].Prompts)
+	}
 }
 
 // A newer version replaces the installed one, which is kept aside; when the
 // new one cannot be installed the old one is put back.
+func TestMarketViewKeepsListingAttribution(t *testing.T) {
+	s := &Server{profile: t.TempDir()}
+	s.hostMarket.fetched = time.Now()
+	s.hostMarket.entries = []hostbridge.MarketEntry{
+		{
+			Name:   "official",
+			Author: &hostbridge.MarketAuthor{Name: "Lee-xeo", Official: true},
+			I18n:   map[string]hostbridge.LocalizedText{"zh-CN": {DisplayName: "官方插件", Description: "官方说明"}},
+		},
+		{Name: "community", Author: &hostbridge.MarketAuthor{Name: "Lin"}},
+		{Name: "legacy"},
+	}
+	recorder := httptest.NewRecorder()
+	s.getHostMarket(recorder, httptest.NewRequest(http.MethodGet, "/api/host-tools/market", nil))
+	var view struct {
+		Entries []struct {
+			Author *hostbridge.MarketAuthor             `json:"author"`
+			I18n   map[string]hostbridge.LocalizedText `json:"i18n"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &view); err != nil || len(view.Entries) != len(s.hostMarket.entries) {
+		t.Fatalf("unexpected market response: %s", recorder.Body.String())
+	}
+	for i, entry := range view.Entries {
+		if !reflect.DeepEqual(entry.Author, s.hostMarket.entries[i].Author) {
+			t.Errorf("%s: got author %+v, want %+v", s.hostMarket.entries[i].Name, entry.Author, s.hostMarket.entries[i].Author)
+		}
+		if !reflect.DeepEqual(entry.I18n, s.hostMarket.entries[i].I18n) {
+			t.Errorf("%s: got i18n %+v, want %+v", s.hostMarket.entries[i].Name, entry.I18n, s.hostMarket.entries[i].I18n)
+		}
+	}
+}
+
 func TestInstallFromMarketReplacesAndRestores(t *testing.T) {
 	manifest := func(version string) string {
 		return `{"name":"notes","version":"` + version + `","description":"Notes.","permissions":[],"command":["python3","server.py"]}`
@@ -302,5 +347,142 @@ func TestInstallFromMarketReplacesAndRestores(t *testing.T) {
 	}
 	if err := s.installFromMarket(context.Background(), "missing", false); err == nil {
 		t.Fatal("installed a plugin the list does not have")
+	}
+}
+
+func TestMissingProgramMessageAndProjectPlaceholderHelpers(t *testing.T) {
+	for program, want := range map[string]string{
+		"uv":      "https://docs.astral.sh/uv/",
+		"uvx":     "https://docs.astral.sh/uv/",
+		"npx":     "https://nodejs.org/",
+		"node":    "https://nodejs.org/",
+		"python3": "https://www.python.org/",
+		"custom":  "custom",
+	} {
+		msg := missingProgramMessage(program)
+		if !strings.Contains(msg, want) {
+			t.Errorf("missingProgramMessage(%q) = %q, want %q", program, msg, want)
+		}
+	}
+
+	s := &Server{
+		profile:       t.TempDir(),
+		preferences:   Preferences{HostTools: true, Workspace: "/p/main"},
+		projectShares: map[string]*projectShare{"/p/main": {}, "/p/other": {}},
+		hostTools: &hostTools{
+			serving:         true,
+			pluginProblems:  map[string]string{"blender": missingProgramMessage("uv")},
+			missingPrograms: map[string]string{"blender": "uv"},
+		},
+	}
+	if got := s.hostActiveProjectDir(); got != "/p/main" {
+		t.Fatalf("hostActiveProjectDir = %q, want /p/main", got)
+	}
+	if got := s.guestActiveProjectDir(); got == "" {
+		t.Fatal("guestActiveProjectDir returned empty")
+	}
+	// The current workspace is not shared: no other shared folder stands in.
+	s.preferences.Workspace = "/env/default"
+	if got := s.hostActiveProjectDir(); got != "" {
+		t.Fatalf("hostActiveProjectDir for an unshared workspace = %q, want empty", got)
+	}
+	if got := s.guestActiveProjectDir(); got != "" {
+		t.Fatalf("guestActiveProjectDir for an unshared workspace = %q, want empty", got)
+	}
+	s.preferences.Workspace = "/p/main"
+	s.clientWorkspace = "/mnt/client/demo"
+	if host, guest := s.hostActiveProjectDir(), s.guestActiveProjectDir(); host != "" || guest != "/mnt/client/demo" {
+		t.Fatalf("client workspace: host %q guest %q", host, guest)
+	}
+	s.clientWorkspace = ""
+	blenderDir := filepath.Join(s.hostPluginDir(), "blender")
+	if err := os.MkdirAll(blenderDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(blenderDir, hostbridge.ManifestFile), []byte(
+		`{"name":"blender","version":"0.1.0","description":"Blender","permissions":["files"],"command":["uv","run","--with","blender-mcp==1.3.1","python","server.py","--root","${PROJECT_DIR}"]}`,
+	), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	view := s.hostToolsView()
+	found := false
+	for _, p := range view.Plugins {
+		if p.Name == "blender" {
+			found = true
+			if p.MissingProgram != "uv" || !strings.Contains(p.Problem, "https://docs.astral.sh/uv/") {
+				t.Fatalf("blender plugin view: %+v", p)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("blender not found in hostToolsView")
+	}
+}
+
+func TestMarketFloatingViewFloorRejectsUpdateBeforeDownload(t *testing.T) {
+	prevVersion := version.Version
+	version.Version = "0.2.0"
+	defer func() { version.Version = prevVersion }()
+
+	downloaded := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		downloaded = true
+		http.Error(w, "unexpected download", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	previous := hostbridge.CommunityMarket
+	hostbridge.CommunityMarket = hostbridge.Market{IndexURL: server.URL + "/index.json", ArchivePrefix: server.URL + "/dist/"}
+	defer func() { hostbridge.CommunityMarket = previous }()
+
+	s := &Server{profile: t.TempDir()}
+	s.hostMarket.fetched = time.Now()
+	s.hostMarket.entries = []hostbridge.MarketEntry{{
+		Name:        "system-status",
+		Version:     "0.2.0",
+		Kind:        hostbridge.KindGuest,
+		Permissions: []string{},
+		Engines:     &hostbridge.Engines{Cage: ">=0.2.0"},
+		Contributes: &hostbridge.Contributes{
+			Views: []hostbridge.View{{
+				ID:           "status",
+				Title:        "System Status",
+				Entry:        "view/index.html",
+				Presentation: hostbridge.ViewPresentationFloating,
+				Width:        316,
+				Height:       286,
+			}},
+		},
+		Archive: server.URL + "/dist/system-status-0.2.0.tar.gz",
+		SHA256:  strings.Repeat("a", 64),
+		Bytes:   128,
+	}}
+	installed := filepath.Join(s.hostPluginDir(), "system-status")
+	if err := os.MkdirAll(installed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldManifest := `{"name":"system-status","version":"0.1.0","description":"Status.","permissions":[],"engines":{"cage":">=0.1.9"},"kind":"guest","contributes":{"mcpServers":[{"id":"status","command":["python3","server.py"]}]}}`
+	if err := os.WriteFile(filepath.Join(installed, hostbridge.ManifestFile), []byte(oldManifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := httptest.NewRecorder()
+	s.getHostMarket(rec, httptest.NewRequest(http.MethodGet, "/api/host-tools/market", nil))
+	var view struct {
+		Entries []hostMarketEntryView `json:"entries"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil || len(view.Entries) != 1 {
+		t.Fatalf("unexpected market response: %s", rec.Body.String())
+	}
+	if view.Entries[0].Supported || !view.Entries[0].Update || view.Entries[0].Problem == "" {
+		t.Fatalf("expected unsupported floating update on 0.2.0, got %+v", view.Entries[0])
+	}
+	if err := s.installFromMarket(context.Background(), "system-status", true); err == nil {
+		t.Fatal("expected installFromMarket to reject floating view on 0.2.0")
+	}
+	if downloaded {
+		t.Fatal("installFromMarket downloaded archive before checking feature engine floor")
+	}
+	if m, err := hostbridge.LoadManifest(installed); err != nil || m.Version != "0.1.0" {
+		t.Fatalf("existing plugin was disturbed: %+v %v", m, err)
 	}
 }

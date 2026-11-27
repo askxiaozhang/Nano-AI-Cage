@@ -15,6 +15,8 @@ import (
 	"github.com/sylvinus/agent-vm/internal/guestos"
 	"github.com/sylvinus/agent-vm/internal/host"
 	"github.com/sylvinus/agent-vm/internal/hostimage"
+	"github.com/sylvinus/agent-vm/internal/managedproxy"
+	"github.com/sylvinus/agent-vm/internal/usererror"
 	"io"
 	"io/fs"
 	"log"
@@ -23,7 +25,9 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"reflect"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -46,6 +50,7 @@ type Server struct {
 	shellLoginWatch                                  shellLoginWatchState
 	desktopCatalogRevision                           atomic.Uint64
 	desktopLoginWatch                                desktopWatchState
+	desktopAction                                    func(context.Context, string, claudeAccount, string) error
 	desktopViews                                     displayViewDemand
 	desktopDisplayUpdate                             func(bool) error
 	browserViews                                     displayViewDemand
@@ -56,6 +61,8 @@ type Server struct {
 	clipboardFiles                                   map[string]clipboardFileSelection
 	clipboardRelease                                 func([]string)
 	clipboardCancel                                  context.CancelFunc
+	clipboardDone                                    chan struct{}
+	clipboardDesktop                                 string
 	clipboardGuestSession                            string
 	phones                                           mobilePairing
 	instanceID                                       string
@@ -80,7 +87,9 @@ type Server struct {
 	diagnosticRateMu                                 sync.Mutex
 	diagnosticWindow                                 time.Time
 	diagnosticCount                                  int
+	guestThemeMu                                     sync.Mutex
 	tickets                                          map[string]time.Time
+	remoteDesktopTickets                             map[string]bool
 	browserControl                                   *browserClient
 	controlSession                                   guestSession
 	op                                               sync.Mutex
@@ -88,23 +97,44 @@ type Server struct {
 	mu                                               sync.Mutex
 	preferences                                      Preferences
 	jobs                                             jobManager
+	desktopOnboardingUntil                           time.Time
+	desktopOnboardingReleased                        bool
 	ready                                            bool
 	location                                         *Location
 	exitProbeError                                   string
 	locationError                                    string
 	networkIntentError                               string
 	credentials                                      guestCredentials
+	desktopFileOwners                                map[string]string
 	terminals                                        terminalManager
+	notifications                                    notificationHub
 	mobileCLI                                        mobileCLIStore
 	conversationMu                                   sync.Mutex
+	conversationDiscovered                           conversationDiscovery       // guarded by conversationMu
+	conversationViews                                map[string]conversationView // guarded by conversationMu
+	conversationGeneration                           atomic.Uint64
+	proxyStore                                       managedproxy.StoreReader // read-only monitor parses
+	monitorTimingMu                                  sync.Mutex
+	monitorTimingLogs                                map[string]monitorTimingLog
 	mobileConnectMu                                  sync.Mutex
 	audioClients                                     int
+	audioInputClients                                int
 	projectShares                                    map[string]*projectShare
+	hostCLIUses                                      map[*hostCLIUse]bool
+	hostCLIBrowser                                   hostCLIFocus
 	hostTools                                        *hostTools
 	hostToolsRemoved                                 bool
 	hostMarket                                       hostMarketCache
 	hostGrants                                       *hostGrants
 	hostGrantsOnce                                   sync.Once
+	remoteApprovals                                  remoteApprovalHub
+	clientBridge                                     serverClientPluginBridge
+	// pluginSettingsMu serializes reading and writing plugin-settings.json.
+	pluginSettingsMu sync.Mutex
+	// defaultPluginsMu serializes reading and writing default-plugins.json.
+	defaultPluginsMu sync.Mutex
+	// draftStoreOverride stands in for the guest extension-submissions folder in tests.
+	draftStoreOverride string
 	// tailnetTool stands in for the running Tailscale plugin in tests.
 	tailnetTool             func(context.Context, string, json.RawMessage) (*mcp.CallToolResult, error)
 	hostViewMu              sync.Mutex
@@ -123,6 +153,9 @@ type Server struct {
 	networkPaused           bool
 	proxyNetworkLost        bool
 	proxyNetworkRetry       time.Time
+	proxyInterfaceLost      bool
+	proxyInterfaceError     string
+	proxyBindingCheck       proxyBindingCheck
 	checkCancel             context.CancelFunc
 	lifeContext             context.Context
 	lifeCancel              context.CancelFunc
@@ -130,7 +163,17 @@ type Server struct {
 	activities              sync.WaitGroup
 	closeOnce               sync.Once
 	closeErr                error
+	deviceReset             deviceResetHooks
+	abandonedVMState        func(context.Context, string) (bool, error)
 	controlPublished        bool
+
+	// guestUpdateGeneration changes whenever an attach, update or stop
+	// decides guestUpdateRequired, so a slower version query cannot
+	// overwrite a newer decision.
+	guestUpdateGeneration uint64
+
+	// projectPluginRestarts runs one project switch's plugin restarts at a time.
+	projectPluginRestarts sync.Mutex
 }
 
 func randomToken() string {
@@ -246,6 +289,18 @@ func serve(configPath string, clientOnly bool, fullConfigPath string) (returned 
 				return err
 			}
 		}
+		s.ensureDefaultPlugins()
+		if e := s.retireLocalProxyCore(); e != nil {
+			// Revoke the gate even if the old process cannot be stopped.
+			// Keep the workbench available for importing its replacement.
+			s.safety.monitorError = "旧代理核心尚未停止，请迁移到远程节点后重新应用；外网保持关闭"
+			diagnostics.Log("error", "proxy", "停止旧代理核心失败："+e.Error())
+		}
+		go func() {
+			if e := managedproxy.SweepPreflight(profile); e != nil {
+				diagnostics.Log("warn", "proxy", "清理遗留候选代理失败："+e.Error())
+			}
+		}()
 		// A previously running VM cannot keep an unmanaged endpoint online.
 		if cfg, e := loadConfig(configPath); e != nil || cfg.RequireManagedProxy(profile) != nil {
 			_ = s.closeProxyGate("尚未配置有效节点，外网保持关闭")
@@ -322,10 +377,19 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("POST /api/mobile/device", s.reportPhoneDevice)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { jsonReply(w, map[string]bool{"ready": true}) })
 	mux.HandleFunc("POST /api/launch", func(w http.ResponseWriter, r *http.Request) {
-		if !s.launcherAuthenticated(w, r) {
+		var input struct {
+			Token         string `json:"token"`
+			RemoteDesktop bool   `json:"remote_desktop,omitempty"`
+		}
+		if !readJSON(w, r, &input) {
 			return
 		}
-		jsonReply(w, launchResponse{ConfigPath: s.configPath, ClientOnly: s.clientOnly, DesktopGateway: s.desktopEntry, URL: s.origin + "/?launch=" + randomToken()[:8] + "#" + s.issueTicket(), Controller: s.identity})
+		if !equalSecret(input.Token, s.token) {
+			http.Error(w, "Launcher refused", http.StatusUnauthorized)
+			return
+		}
+		ticket := s.issueTicketWithScope(input.RemoteDesktop)
+		jsonReply(w, launchResponse{ConfigPath: s.configPath, ClientOnly: s.clientOnly, DesktopGateway: s.desktopEntry, SessionID: desktopSessionID(), URL: s.origin + "/?launch=" + randomToken()[:8] + "#" + ticket, Controller: s.identity})
 	})
 	if s.desktopEntry || s.clientOnly {
 		mux.HandleFunc("POST /api/handoff", s.handoffEntry)
@@ -344,14 +408,19 @@ func (s *Server) handler() http.Handler {
 		if !readJSON(w, r, &v) {
 			return
 		}
-		if !s.consumeTicket(v.Token) {
+		ok, remoteDesktop := s.consumeTicketWithScope(v.Token)
+		if !ok {
 			http.Error(w, "访问凭证无效，请从 Cage 应用重新打开。", http.StatusUnauthorized)
 			return
 		}
 		http.SetCookie(w, &http.Cookie{Name: s.cookieName(), Value: s.session, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: 86400 * 30})
+		if remoteDesktop {
+			http.SetCookie(w, &http.Cookie{Name: s.cookieName() + "-remote-desktop", Value: remoteDesktopProof(s.token), Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: 86400 * 30})
+		}
 		jsonReply(w, map[string]bool{"ok": true})
 	})
 	mux.HandleFunc("GET /api/status", s.status)
+	mux.HandleFunc("GET /api/host-cli", s.hostCLI)
 	mux.HandleFunc("GET /api/environment/initialization", s.initialization)
 	mux.HandleFunc("POST /api/environment/initialization", s.initialization)
 	mux.HandleFunc("GET /api/remote/manifest", s.remoteManifest)
@@ -378,11 +447,22 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("POST /api/host-tools", s.setHostTools)
 	mux.HandleFunc("POST /api/host-tools/call", s.callHostTool)
 	mux.HandleFunc("GET /api/host-tools/market", s.getHostMarket)
+	mux.HandleFunc("GET /api/host-tools/drafts", s.getHostPluginDrafts)
+	mux.HandleFunc("GET /api/host-tools/drafts/file", s.getHostPluginDraftFile)
+	mux.HandleFunc("POST /api/host-tools/drafts/install", s.installHostPluginDraft)
+	mux.HandleFunc("POST /api/host-tools/drafts/discard", s.discardHostPluginDraft)
+	mux.HandleFunc("GET /api/host-tools/sync", s.getHostPluginSync)
+	mux.HandleFunc("POST /api/host-tools/sync", s.syncHostPlugin)
+	mux.HandleFunc("POST /api/host-tools/approvals/channel", s.remoteApprovalChannel)
+	mux.HandleFunc("POST /api/host-tools/client-bridge", s.remoteClientPluginBridge)
 	mux.HandleFunc("GET "+hostPluginIconPath, s.hostPluginIcon)
 	mux.HandleFunc("GET /api/client/about", s.appAbout)
 	mux.HandleFunc("POST /api/client/about", s.appAbout)
 	mux.HandleFunc("GET /api/client/language", s.interfaceLanguage)
 	mux.HandleFunc("POST /api/client/language", s.interfaceLanguage)
+	mux.HandleFunc("GET /api/client/notifications", s.notificationPreferences)
+	mux.HandleFunc("POST /api/client/notifications", s.notificationPreferences)
+	mux.HandleFunc("GET /api/notifications/events", s.notificationEvents)
 	mux.HandleFunc("POST /api/projects/open", s.openProject)
 	mux.HandleFunc("POST /api/projects/save", s.saveProject)
 	mux.HandleFunc("POST /api/projects/remove", s.removeProject)
@@ -394,6 +474,7 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("GET /api/environment/guest-profile", s.guestProfileOptions)
 	mux.HandleFunc("POST /api/environment/guest-profile/preview", s.guestProfileOptions)
 	s.registerCacheMaintenance(mux)
+	s.registerDeviceReset(mux)
 	mux.HandleFunc("GET /api/environment/guest-systems", s.guestInstallation)
 	mux.HandleFunc("DELETE /api/environment/guest-systems", s.guestInstallation)
 	mux.HandleFunc("GET /api/environment/storage", s.environmentStorage)
@@ -410,7 +491,9 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("POST /api/favorites", s.serveFavorites)
 	mux.HandleFunc("POST /api/appearance", s.saveAppearance)
 	mux.HandleFunc("GET /api/appearance/codex", s.codexAppearance)
+	mux.HandleFunc("POST /api/appearance/guest-theme", s.syncGuestAppearance)
 	mux.HandleFunc("POST /api/settings/probe", s.probe)
+	mux.HandleFunc("POST /api/settings/dns-check", s.checkDNS)
 	mux.HandleFunc("GET /api/proxy", s.proxyStatus)
 	mux.HandleFunc("GET /api/proxy/local-configs", s.proxyLocalConfigs)
 	mux.HandleFunc("POST /api/proxy/delay", s.proxyDelay)
@@ -461,8 +544,12 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("GET /api/vnc", s.vnc)
 	mux.HandleFunc("GET /api/desktop-instances", s.desktopCatalog)
 	mux.HandleFunc("POST /api/desktop-instances", s.newAccountDesktop)
+	mux.HandleFunc("DELETE /api/desktop-instances/{id}", s.deleteAccountDesktop)
+	mux.HandleFunc("POST /api/desktop-instances/{id}/metadata", s.updateAccountDesktopMetadata)
 	mux.HandleFunc("GET /api/desktop-instances/{id}/{action}", s.accountDesktop)
 	mux.HandleFunc("POST /api/desktop-instances/{id}/{action}", s.accountDesktop)
+	mux.HandleFunc("GET /api/desktop-apps/{plugin}/{app}/{action}", s.desktopApp)
+	mux.HandleFunc("POST /api/desktop-apps/{plugin}/{app}/{action}", s.desktopApp)
 	mux.HandleFunc("GET /api/claude-desktop", s.claudeDesktopStatus)
 	mux.HandleFunc("GET /api/claude-desktop/vnc-credentials", s.claudeDesktopCredentials)
 	mux.HandleFunc("GET /api/claude-desktop/vnc", s.claudeDesktopVNC)
@@ -479,6 +566,7 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("POST /api/ai-desktops/{id}/{action}", s.aiDesktopAction)
 	mux.HandleFunc("GET /api/terminals", s.listTerminals)
 	mux.HandleFunc("GET /api/audio", s.audio)
+	mux.HandleFunc("GET /api/audio/input", s.audioInput)
 	mux.HandleFunc("GET /api/clipboard", s.sharedClipboard)
 	mux.HandleFunc("POST /api/clipboard/files", s.clipboardArchive)
 	mux.HandleFunc("GET /api/clipboard/files/{id}", s.clipboardArchive)
@@ -507,9 +595,12 @@ func (s *Server) handler() http.Handler {
 				return
 			}
 		}
-		// A plugin's page belongs to this computer's own plugins, whatever
-		// workload is selected, and sets the headers its frame needs.
+		// A plugin's page belongs to the currently selected workload (local or
+		// sandbox-proxied from the active remote host), and sets its own headers.
 		if strings.HasPrefix(r.URL.Path, hostViewPrefix) {
+			if s.routeRemotePluginView(w, r) {
+				return
+			}
 			s.servePluginView(w, r)
 			return
 		}
@@ -536,7 +627,7 @@ func (s *Server) handler() http.Handler {
 		}
 		// Shell preferences and metadata belong to this computer, even while an
 		// SSH workload is selected. They use local session authentication.
-		if r.URL.Path == "/api/client/about" || r.URL.Path == "/api/client/language" {
+		if r.URL.Path == "/api/client/about" || r.URL.Path == "/api/client/language" || r.URL.Path == "/api/client/notifications" {
 			mux.ServeHTTP(w, r)
 			return
 		}
@@ -550,7 +641,12 @@ func (s *Server) handler() http.Handler {
 			mux.ServeHTTP(w, r)
 			return
 		}
-		if strings.HasPrefix(r.URL.Path, "/api/mobile/") {
+		if r.URL.Path == "/api/host-cli" {
+			if s.desktopEntry || s.clientOnly || !equalSecret(r.Header.Get(hostCLIHeader), hostCLIProof(s.token)) {
+				http.Error(w, "Local CLI authentication required", http.StatusForbidden)
+				return
+			}
+		} else if strings.HasPrefix(r.URL.Path, "/api/mobile/") {
 			// Device trust is scoped to this host. Never forward a paired phone
 			// into a different host selected by the desktop SSH client.
 			if s.desktopEntry && !s.clientOnly && s.remote != nil && s.remote.desktop != nil && r.Header.Get(connectionHeader) != "" {
@@ -579,8 +675,14 @@ func (s *Server) handler() http.Handler {
 		trustedDesktop := s.hasTrustedView(r)
 		phoneRoom := s.pairedPhoneRoom(r)
 		if strings.HasPrefix(r.URL.Path, "/api/") && !accountRoute && !bootstrapRoute && !strings.HasPrefix(r.URL.Path, "/api/diagnostics") && !(r.Method == "GET" && r.URL.Path == "/api/appearance") {
-			epoch, unlocked := s.account.accessFor(trustedDesktop, phoneRoom != nil)
-			if !unlocked {
+			epoch, access := s.account.accessStateFor(trustedDesktop, phoneRoom != nil)
+			if access != accountAccessGranted {
+				if access == accountAccessDesktopOnly {
+					w.Header().Set("X-Cage-Recovery", "desktop-account-mobile-access")
+					http.Error(w, s.account.desktopOnlyMobileMessage(), http.StatusLocked)
+					return
+				}
+				s.account.markMissingAccount(w)
 				http.Error(w, "Cage 已锁定，请先登录", http.StatusLocked)
 				return
 			}
@@ -614,6 +716,12 @@ func (s *Server) handler() http.Handler {
 				return
 			}
 		}
+		if r.Method != "GET" && r.Method != "HEAD" {
+			// Writes may change session records; do not reuse a discovery
+			// made before or during them.
+			s.invalidateConversationDiscovery()
+			defer s.invalidateConversationDiscovery()
+		}
 		mux.ServeHTTP(w, r)
 	})
 }
@@ -629,15 +737,70 @@ func readJSON(w http.ResponseWriter, r *http.Request, v any, limits ...int64) bo
 	d := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit))
 	d.DisallowUnknownFields()
 	if err := d.Decode(v); err != nil {
-		http.Error(w, "请求格式无效", 400)
+		http.Error(w, jsonRequestError(err), 400)
 		return false
 	}
 	var extra any
 	if d.Decode(&extra) != io.EOF {
-		http.Error(w, "请求格式无效", 400)
+		http.Error(w, "请求格式无效：请求体只能包含一个 JSON 值", 400)
 		return false
 	}
 	return true
+}
+
+// jsonRequestError names the offending field, never its value, so API and
+// Agent callers can correct a request.
+func jsonRequestError(err error) string {
+	const invalid = "请求格式无效"
+	var tooLarge *http.MaxBytesError
+	var typeErr *json.UnmarshalTypeError
+	var syntaxErr *json.SyntaxError
+	switch {
+	case errors.As(err, &tooLarge):
+		return fmt.Sprintf("%s：请求体超过 %d 字节", invalid, tooLarge.Limit)
+	case errors.As(err, &typeErr) && typeErr.Field != "":
+		return fmt.Sprintf("%s：字段 %s 应为%s", invalid, quoteJSONField(typeErr.Field), jsonKind(typeErr.Type))
+	case errors.As(err, &typeErr):
+		return invalid + "：请求体应为 JSON " + jsonKind(typeErr.Type)
+	case errors.As(err, &syntaxErr), errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
+		return invalid + "：不是完整的 JSON"
+	}
+	// encoding/json reports unknown fields only as text.
+	if quoted, ok := strings.CutPrefix(err.Error(), "json: unknown field "); ok {
+		if field, e := strconv.Unquote(quoted); e == nil {
+			return fmt.Sprintf("%s：不支持字段 %s", invalid, quoteJSONField(field))
+		}
+	}
+	return invalid
+}
+
+func quoteJSONField(field string) string {
+	if r := []rune(field); len(r) > 64 {
+		field = string(r[:64]) + "…"
+	}
+	return strconv.Quote(field)
+}
+
+func jsonKind(t reflect.Type) string {
+	for t != nil && t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if t == nil {
+		return "其他类型"
+	}
+	switch t.Kind() {
+	case reflect.String:
+		return "字符串"
+	case reflect.Bool:
+		return "布尔值"
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Float32, reflect.Float64:
+		return "数字"
+	case reflect.Slice, reflect.Array:
+		return "数组"
+	case reflect.Map, reflect.Struct:
+		return "对象"
+	}
+	return "其他类型"
 }
 func jsonReply(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -648,6 +811,9 @@ func requestError(w http.ResponseWriter, err error) {
 	http.Error(w, err.Error(), http.StatusBadRequest)
 }
 func (s *Server) status(w http.ResponseWriter, r *http.Request) {
+	if requestInitiator(r) == jobInitiatorSetup {
+		s.touchDesktopOnboarding()
+	}
 	projects, err := s.projectPaths()
 	if err != nil {
 		requestError(w, errors.New("无法读取项目列表，请检查项目配置"))
@@ -679,8 +845,12 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 		"storage_recovery": s.storageRecoveryStatusLocked(),
 		"keyboard":         s.preferences.Keyboard, "auto_timezone": s.preferences.AutoTimezone, "job": s.jobs.snapshot(),
 		"location": s.location, "network_error": s.currentNetworkErrorLocked(), "can_restore": e == nil,
+		"network_paused": s.networkPaused, "network_open": s.networkOpenLocked(time.Now()),
 		"safety": s.safety, "environment_update_required": s.guestUpdateRequired, "environment_update_error": s.guestUpdateError,
-		"abandoned_guests": s.abandonedGuestList(),
+		"abandoned_guests": s.abandonedGuestList(), "abandoned_environment": s.abandonedEnvironmentSystem(),
+	}
+	if time.Now().Before(s.hostCLIBrowser.until) {
+		view["host_cli_browser"] = s.hostCLIBrowser
 	}
 	if system, err := s.installedLinuxSystem(); err != nil {
 		view["guest_system_error"] = err.Error()
@@ -701,7 +871,15 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	jsonReply(w, settingsView(c, p))
 }
 func (s *Server) proposed(w http.ResponseWriter, r *http.Request) (savedProfile, bool) {
-	var input Settings
+	v, _, ok := s.proposedWithOptions(w, r)
+	return v, ok
+}
+
+func (s *Server) proposedWithOptions(w http.ResponseWriter, r *http.Request) (savedProfile, bool, bool) {
+	var input struct {
+		Settings
+		SaveStaticDraft bool `json:"save_static_draft"`
+	}
 	// Older clients omit preferences introduced after their release.
 	s.mu.Lock()
 	input.MobileRelay = s.preferences.MobileRelay
@@ -712,9 +890,18 @@ func (s *Server) proposed(w http.ResponseWriter, r *http.Request) (savedProfile,
 	hostTools, hostPluginsOff := s.preferences.HostTools, s.preferences.HostPluginsOff
 	input.Clock12Hour = s.preferences.Clock12Hour
 	input.BrowserHomeURL = browserHomeURL(s.preferences)
+	input.InstallTLS12Compat = s.preferences.InstallTLS12Compat
+	input.TLSClientHelloSplit = s.preferences.TLSClientHelloSplit
+	input.LocationIPInfoFallback = s.preferences.LocationIPInfoFallback
 	s.mu.Unlock()
+	// Clients predating the DNS options keep the saved ones.
+	if current, err := loadConfig(s.configPath); err == nil {
+		input.DNSFallbackURLs = current.DNS.FallbackURLs()
+		input.DNSPublicFallback = current.DNS.PublicFallback
+		input.DNSBootstrapURLs = current.DNS.BootstrapURLs()
+	}
 	if !readJSON(w, r, &input) {
-		return savedProfile{}, false
+		return savedProfile{}, false, false
 	}
 	// The tools that act on this computer have their own route, open only to
 	// this computer's window; saving settings never changes them.
@@ -722,16 +909,19 @@ func (s *Server) proposed(w http.ResponseWriter, r *http.Request) (savedProfile,
 	old, err := loadConfig(s.configPath)
 	if err != nil {
 		requestError(w, err)
-		return savedProfile{}, false
+		return savedProfile{}, false, false
 	}
-	c, p, err := proposedSettings(input, old, s.profile)
+	c, p, err := proposedSettings(input.Settings, old, s.profile)
 	if err != nil {
 		requestError(w, err)
-		return savedProfile{}, false
+		return savedProfile{}, false, false
 	}
-	return savedProfile{c, p}, true
+	return savedProfile{c, p}, input.SaveStaticDraft, true
 }
-func (s *Server) probe(w http.ResponseWriter, r *http.Request) {
+
+var checkDNSFunc = cage.CheckDNS
+
+func (s *Server) checkDNS(w http.ResponseWriter, r *http.Request) {
 	v, ok := s.proposed(w, r)
 	if !ok {
 		return
@@ -740,10 +930,50 @@ func (s *Server) probe(w http.ResponseWriter, r *http.Request) {
 		requestError(w, err)
 		return
 	}
-	loc, err := probeLocation(r.Context(), v.Config)
-	if finishErr := s.finishLocationProbe(v.Config, loc, err); finishErr != nil {
-		requestError(w, finishErr)
+	result, err := checkDNSFunc(r.Context(), v.Config)
+	if err != nil {
+		requestError(w, err)
 		return
+	}
+	jsonReply(w, result)
+}
+
+func (s *Server) probe(w http.ResponseWriter, r *http.Request) {
+	v, ok := s.proposed(w, r)
+	if !ok {
+		return
+	}
+	p, err := managedproxy.Applied(s.profile, v.Config.ProxyURL, v.Config.ProxyRevision)
+	if err != nil {
+		requestError(w, err)
+		return
+	}
+	old, err := loadConfig(s.configPath)
+	if err != nil {
+		requestError(w, err)
+		return
+	}
+	if !needsBootstrapPreflight(old, v.Config, p) {
+		if !s.vmRunning() {
+			checkCtx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+			ready := proxyInterfaceCoreRunning(checkCtx, s.profile, p)
+			cancel()
+			if !ready {
+				requestError(w, usererror.New("验证代理出口", proxyNotReadyReason, "请先启动环境", nil))
+				return
+			}
+		}
+		if err := s.ensureProxyInterfaceBeforeUse(r.Context()); err != nil {
+			requestError(w, err)
+			return
+		}
+	}
+	loc, usedPreflight, err := s.probeCandidateLocation(r.Context(), old, v.Config, v.Preferences)
+	if !usedPreflight {
+		if finishErr := s.finishLocationProbe(v.Config, loc, err); finishErr != nil {
+			requestError(w, finishErr)
+			return
+		}
 	}
 	if err != nil {
 		requestError(w, err)
@@ -752,7 +982,7 @@ func (s *Server) probe(w http.ResponseWriter, r *http.Request) {
 	jsonReply(w, loc)
 }
 func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) {
-	v, ok := s.proposed(w, r)
+	v, saveStaticDraft, ok := s.proposedWithOptions(w, r)
 	if !ok {
 		return
 	}
@@ -764,11 +994,11 @@ func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) {
 	if err == nil && old == v.Config && previous.AutoTimezone == v.Preferences.AutoTimezone && previous.AutoLanguage == v.Preferences.AutoLanguage && previous.Workspace != v.Preferences.Workspace {
 		kind = "project"
 	}
-	s.launch(w, kind, func() error {
+	s.launchRequest(w, r, kind, func() error {
 		s.mu.Lock()
 		v.Preferences.BrowserHomeURL = s.preferences.BrowserHomeURL
 		s.mu.Unlock()
-		return s.apply(v, true)
+		return s.applyWithOptions(v, true, saveStaticDraft)
 	})
 }
 func (s *Server) restore(w http.ResponseWriter, r *http.Request) {
@@ -778,7 +1008,15 @@ func (s *Server) restore(w http.ResponseWriter, r *http.Request) {
 		requestError(w, errors.New("没有可恢复的配置"))
 		return
 	}
-	s.launch(w, "restore", func() error {
+	if v.Config.DNS, e = cage.LoadDNSOptionsFile(filepath.Join(s.profile, previousDNSFile)); e != nil {
+		requestError(w, errors.New("没有可恢复的配置"))
+		return
+	}
+	// The saved configuration does not carry this switch; the preferences
+	// saved with it do. Without it a restored switch is written back while
+	// the environment keeps running with the other setting.
+	v.Config.TLSClientHelloSplit = v.Preferences.TLSClientHelloSplit
+	s.launchRequest(w, r, "restore", func() error {
 		if err := s.apply(v, false); err != nil {
 			return err
 		}
@@ -786,10 +1024,20 @@ func (s *Server) restore(w http.ResponseWriter, r *http.Request) {
 	})
 }
 func (s *Server) start(w http.ResponseWriter, r *http.Request) {
-	var input guestInstallRequest
-	if r.ContentLength != 0 && !readJSON(w, r, &input) {
+	if requestInitiator(r) == jobInitiatorAgent && s.desktopOnboardingActive() {
+		http.Error(w, "桌面端正在进行首次引导，请先在 Cage 窗口完成引导；如需由 Agent 继续，请先调用 initialization.set 并传入 {\"action\":\"release\"}", http.StatusConflict)
 		return
 	}
+	var request struct {
+		guestInstallRequest
+		// SetAsideAbandoned moves an environment of a no longer supported
+		// system aside, unchanged, before a Debian environment is created.
+		SetAsideAbandoned bool `json:"set_aside_abandoned"`
+	}
+	if r.ContentLength != 0 && !readJSON(w, r, &request) {
+		return
+	}
+	input := request.guestInstallRequest
 	if input.GuestProfile != nil {
 		if err := input.GuestProfile.Validate(); err != nil {
 			requestError(w, err)
@@ -798,6 +1046,10 @@ func (s *Server) start(w http.ResponseWriter, r *http.Request) {
 	}
 	if abandonedGuestSystem(input.System) {
 		http.Error(w, abandonedGuestMessage(input.System), http.StatusConflict)
+		return
+	}
+	if request.SetAsideAbandoned {
+		s.startAfterSettingAside(w, r, input)
 		return
 	}
 	pending, err := guestos.LoadInstallation(s.profile)
@@ -831,7 +1083,7 @@ func (s *Server) start(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "当前环境无法启动所选客户机系统，请保留原环境并重新检查安装选择", http.StatusConflict)
 		return
 	}
-	s.launch(w, "start", func() error {
+	s.launchRequest(w, r, "start", func() error {
 		if err := s.prepareGuestProfile(input.GuestProfile); err != nil {
 			return err
 		}
@@ -841,21 +1093,52 @@ func (s *Server) start(w http.ResponseWriter, r *http.Request) {
 		return s.startEnvironment(true)
 	})
 }
-func (s *Server) stop(w http.ResponseWriter, r *http.Request) {
-	s.requestStop(w, false)
+
+// startAfterSettingAside is only offered in the Cage window, where the user
+// confirmed that the old environment is moved aside.
+func (s *Server) startAfterSettingAside(w http.ResponseWriter, r *http.Request, input guestInstallRequest) {
+	if !s.hasTrustedView(r) || requestInitiator(r) == jobInitiatorAgent || !s.localVMStorage() {
+		http.Error(w, "请在本机 Cage 窗口确认保留旧 Ubuntu 环境并新建 Debian", http.StatusForbidden)
+		return
+	}
+	if input.System != "" && input.System != guestos.Debian13 {
+		http.Error(w, "新环境只提供 Debian 13", http.StatusConflict)
+		return
+	}
+	if s.abandonedEnvironmentSystem() == "" {
+		http.Error(w, "没有需要保留的旧 Ubuntu 环境", http.StatusConflict)
+		return
+	}
+	s.launchRequest(w, r, "start", func() error {
+		if _, err := s.setAsideAbandonedEnvironment(); err != nil {
+			return err
+		}
+		if err := s.prepareGuestProfile(input.GuestProfile); err != nil {
+			return err
+		}
+		if err := s.prepareEnvironment(); err != nil {
+			return err
+		}
+		return s.hookStartEnv(true)
+	})
 }
 
-func (s *Server) requestStop(w http.ResponseWriter, logout bool) {
+func (s *Server) stop(w http.ResponseWriter, r *http.Request) {
+	s.requestStop(w, r, false)
+}
+
+func (s *Server) requestStop(w http.ResponseWriter, r *http.Request, logout bool) {
 	if err := s.requireStorageReady(); err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
+	initiator := requestInitiator(r)
 	for _, name := range []string{cage.InstanceName(s.profile, s.environmentDir()), "base-building"} {
 		if owner := cage.InstanceJobID(filepath.Join(s.profile, "state"), name); owner != "" {
 			_ = cage.RequestJobStop(s.profile, owner)
 		}
 	}
-	jobID := s.jobs.cancelRunning()
+	jobID := s.jobs.cancelRunningBy(initiator)
 	if jobID != "" {
 		_ = cage.RequestJobStop(s.profile, jobID)
 	}
@@ -864,30 +1147,50 @@ func (s *Server) requestStop(w http.ResponseWriter, logout bool) {
 	if logout {
 		kind = "logout"
 	}
-	s.launch(w, kind, s.stopEnvironment)
+	s.launchFrom(w, initiator, kind, s.stopEnvironment)
 }
 
 func (s *Server) cookieName() string { u, _ := url.Parse(s.origin); return cookieName + "_" + u.Port() }
 
 func (s *Server) issueTicket() string {
+	return s.issueTicketWithScope(false)
+}
+
+func (s *Server) issueTicketWithScope(remoteDesktop bool) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.tickets == nil {
 		s.tickets = map[string]time.Time{}
 	}
+	if s.remoteDesktopTickets == nil {
+		s.remoteDesktopTickets = map[string]bool{}
+	}
 	for token, expires := range s.tickets {
 		if time.Now().After(expires) {
 			delete(s.tickets, token)
+			delete(s.remoteDesktopTickets, token)
 		}
 	}
 	token := randomToken()
 	s.tickets[token] = time.Now().Add(time.Minute)
+	if remoteDesktop {
+		s.remoteDesktopTickets[token] = true
+	}
 	return token
 }
+
 func (s *Server) consumeTicket(token string) bool {
+	ok, _ := s.consumeTicketWithScope(token)
+	return ok
+}
+
+func (s *Server) consumeTicketWithScope(token string) (bool, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	expires, ok := s.tickets[token]
+	remoteDesktop := s.remoteDesktopTickets[token]
 	delete(s.tickets, token)
-	return ok && time.Now().Before(expires)
+	delete(s.remoteDesktopTickets, token)
+	valid := ok && time.Now().Before(expires)
+	return valid, valid && remoteDesktop
 }

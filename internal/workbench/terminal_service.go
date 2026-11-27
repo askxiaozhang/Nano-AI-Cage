@@ -7,17 +7,23 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"sort"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"al.essio.dev/pkg/shellescape"
+	"github.com/sylvinus/agent-vm/internal/diagnostics"
 )
+
+const terminalLimit = 12
 
 var (
 	errTerminalsClosed  = errors.New("后台正在退出，请重新打开 Cage。")
 	errTerminalBusy     = errors.New("环境正在执行其他操作")
 	errTerminalNotReady = errors.New("环境尚未就绪或正在重启")
-	errTerminalLimit    = errors.New("最多保留 12 个终端，请先关闭不用的会话")
+	errTerminalLimit    = fmt.Errorf("最多同时运行 %d 个终端，请先关闭或归档不用的会话", terminalLimit)
 	errTerminalStart    = errors.New("无法创建终端连接")
 )
 
@@ -33,6 +39,7 @@ type terminalRequest struct {
 	afterLogin      *terminalSession
 	sharedID        string
 	requestContext  context.Context
+	hostInput       bool
 }
 
 // terminalManager owns host PTYs; subscriptions only borrow their output. The
@@ -44,6 +51,7 @@ type terminalManager struct {
 	sequence int
 	closed   bool
 	workers  sync.WaitGroup
+	exits    atomic.Uint64 // finished sessions, for cached session lists
 }
 
 func (m *terminalManager) startSession(cmd *exec.Cmd, workspace, kind string, selection claudeSelection, finished func()) (*terminalSession, error) {
@@ -51,12 +59,19 @@ func (m *terminalManager) startSession(cmd *exec.Cmd, workspace, kind string, se
 }
 
 func (m *terminalManager) startSessionWithPTY(cmd *exec.Cmd, workspace, kind string, selection claudeSelection, finished func(), start func() (terminalPTY, error)) (*terminalSession, error) {
-	return m.startReplacing(nil, false, cmd, workspace, kind, selection, finished, start)
+	return m.startReplacing(terminalRequest{}, cmd, workspace, kind, selection, finished, start)
 }
 
-func (m *terminalManager) startReplacing(previous *terminalSession, background bool, cmd *exec.Cmd, workspace, kind string, selection claudeSelection, finished func(), start func() (terminalPTY, error)) (*terminalSession, error) {
+func (m *terminalManager) startReplacing(input terminalRequest, cmd *exec.Cmd, workspace, kind string, selection claudeSelection, finished func(), start func() (terminalPTY, error)) (*terminalSession, error) {
+	previous, background := input.afterLogin, input.BackgroundLogin
+	var evicted []*terminalSession
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	defer func() {
+		m.mu.Unlock()
+		for _, session := range evicted {
+			session.close()
+		}
+	}()
 	if err := m.admissionErrorLocked(previous); err != nil {
 		return nil, err
 	}
@@ -72,6 +87,8 @@ func (m *terminalManager) startReplacing(previous *terminalSession, background b
 		title = "Claude 账号登录"
 	}
 	session := newTerminalSession(file)
+	session.hostInput = input.hostInput
+	session.creationOrder = m.sequence
 	session.backgroundLogin = background
 	session.id, session.title, session.workspace, session.cmd = randomToken()[:16], title, workspace, cmd
 	if previous != nil {
@@ -89,11 +106,15 @@ func (m *terminalManager) startReplacing(previous *terminalSession, background b
 	if m.sessions == nil {
 		m.sessions = make(map[string]*terminalSession)
 	}
+	if previous == nil {
+		evicted = m.evictEndedLocked()
+	}
 	m.sessions[session.id] = session
 	m.workers.Add(1)
 	go func() {
 		defer m.workers.Done()
 		session.run()
+		m.exits.Add(1)
 		if finished != nil {
 			finished()
 		}
@@ -118,10 +139,39 @@ func (m *terminalManager) admissionErrorLocked(previous *terminalSession) error 
 		}
 		return nil
 	}
-	if len(m.sessions) >= 12 {
-		return errTerminalLimit
+	live := 0
+	for _, session := range m.sessions {
+		if !session.ended() {
+			live++
+			if live >= terminalLimit {
+				return errTerminalLimit
+			}
+		}
 	}
 	return nil
+}
+
+func (m *terminalManager) evictEndedLocked() []*terminalSession {
+	if len(m.sessions) < terminalLimit {
+		return nil
+	}
+	var ended []*terminalSession
+	for _, session := range m.sessions {
+		if session.ended() {
+			ended = append(ended, session)
+		}
+	}
+	sort.Slice(ended, func(i, j int) bool {
+		return ended[i].creationOrder < ended[j].creationOrder
+	})
+	evicted := ended[:min(len(ended), len(m.sessions)-terminalLimit+1)]
+	for _, session := range evicted {
+		session.mu.Lock()
+		session.dismissed = true
+		session.mu.Unlock()
+		delete(m.sessions, session.id)
+	}
+	return evicted
 }
 
 func (m *terminalManager) canStart() error {
@@ -144,18 +194,8 @@ func (m *terminalManager) hasLive() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, session := range m.sessions {
-		session.mu.Lock()
-		closed := session.closed
-		session.mu.Unlock()
-		if !closed {
+		if !session.ended() {
 			return true
-		}
-		if session.done != nil {
-			select {
-			case <-session.done:
-			default:
-				return true
-			}
 		}
 	}
 	return false
@@ -179,6 +219,20 @@ func (m *terminalManager) forConversation(connection string) *terminalSession {
 		}
 	}
 	return nil
+}
+
+func (m *terminalManager) managedConnections() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []string
+	for _, session := range m.sessions {
+		session.mu.Lock()
+		if session.connectionID != "" && !session.closed {
+			out = append(out, session.connectionID)
+		}
+		session.mu.Unlock()
+	}
+	return out
 }
 
 // Reattaching a repeated login request must not create a second OAuth flow.
@@ -227,7 +281,7 @@ func (m *terminalManager) remove(id string) {
 	}
 }
 
-// closeAll keeps ended sessions visible until explicitly removed and permits
+// closeAll keeps ended sessions visible until removed or evicted and permits
 // new terminals after the environment starts again. Environment operations
 // serialize this call with createTerminal using Server.op.
 func (m *terminalManager) closeAll() {
@@ -315,7 +369,7 @@ func (s *Server) createTerminalLocked(input terminalRequest) (*terminalSession, 
 		if existing := s.terminals.get(record.TerminalID); existing != nil && existing.ownsConversation() {
 			return existing, nil
 		}
-		if existing := s.terminals.get(record.TerminalID); existing != nil && existing.summary()["closed"] == true {
+		if existing := s.terminals.get(record.TerminalID); existing != nil && existing.ended() {
 			s.terminals.remove(record.TerminalID)
 		}
 	}
@@ -388,6 +442,9 @@ func (s *Server) createTerminalLocked(input terminalRequest) (*terminalSession, 
 		if err != nil {
 			return nil, err
 		}
+		if err := s.checkCLIAccountUse(selection, login); err != nil {
+			return nil, err
+		}
 		if input.LoginProxyNode != nil {
 			if err = s.setLoginDraftNode(selection.ID, *input.LoginProxyNode); err != nil {
 				return nil, err
@@ -400,8 +457,8 @@ func (s *Server) createTerminalLocked(input terminalRequest) (*terminalSession, 
 			if (input.loginDraft == nil && !validClaudeID(selection.ID)) || !validClaudeGuestID(selection.GuestID) || (login && selection.GuestID == "default") {
 				return nil, errors.New("Claude 账号 ID 无效")
 			}
-			if login && selection.ID != "" && s.mobileCLI.activeAccounts()[selection.ID] > 0 {
-				return nil, errors.New("请先结束该账号正在执行的移动 CLI 轮次，再重新登录")
+			if login && selection.ID != "" && s.activeAccountRuns()[selection.ID] > 0 {
+				return nil, errors.New("请先结束该账号正在执行的 CLI 任务，再重新登录")
 			}
 			if selection.ID != "" {
 				if existing, conflict := s.terminals.existingProfileLogin(selection, login); existing != nil || conflict != nil {
@@ -463,7 +520,7 @@ func (s *Server) createTerminalLocked(input terminalRequest) (*terminalSession, 
 			return nil, errMobileLocked
 		}
 	}
-	session, err := s.terminals.startReplacing(input.afterLogin, input.BackgroundLogin, cmd, workspace, input.Kind, selection, finished, func() (terminalPTY, error) { return startTerminal(cmd, 100, 30) })
+	session, err := s.terminals.startReplacing(input, cmd, workspace, input.Kind, selection, finished, func() (terminalPTY, error) { return startTerminal(cmd, 100, 30) })
 	if input.requestContext != nil {
 		s.account.mu.Unlock()
 	}
@@ -493,6 +550,7 @@ func (s *Server) createTerminalLocked(input terminalRequest) (*terminalSession, 
 		}
 		s.prepareCLIConnection(session, conversation.ID)
 		s.monitorClaudeAccount(session, conversation.ID)
+		s.notifications.wake()
 	}
 	if err == nil && input.Kind == "claude" && selection.ID != "" {
 		s.noteClaudeSelection(selection.ID, workspace)
@@ -539,16 +597,123 @@ func (s *Server) readClaudeReportForSubject(ctx context.Context, id, subject, co
 	if a != nil {
 		if id == "default" && subject == "" {
 			// Discover the mutable default identity locally before sending traffic.
-			command = wrapAccountNamespace("unshare -nm", command)
+			command = wrapOfflineAccountNamespace(command)
 		} else if command, err = s.routeSelected(ctx, *a, command); err != nil {
 			return snapshot, err
 		}
 	}
-	data, err := s.guest(ctx, command)
-	if err != nil || json.Unmarshal(data, &snapshot) != nil {
-		return snapshot, errors.New("无法读取账号状态，请确认环境已启动并同步环境组件")
+	data, stderr, err := s.guestControlWithStderr(ctx, command)
+	if err != nil {
+		probeErr := classifyAccountProbeError(err, stderr)
+		diagnostics.Log("warn", "accounts", fmt.Sprintf("guest account report exec failed: exit=%d err=%v stderr=%q", probeErr.exitCode, err, sanitizeAccountNetworkStderr(stderr)))
+		return snapshot, probeErr
+	}
+	if decodeErr := json.Unmarshal(data, &snapshot); decodeErr != nil {
+		diagnostics.Log("warn", "accounts", fmt.Sprintf("guest account report decode failed: err=%v stderr=%q", decodeErr, sanitizeAccountNetworkStderr(stderr)))
+		return snapshot, &accountProbeError{
+			message:  "无法读取账号状态，请确认环境已启动并同步环境组件",
+			cause:    decodeErr,
+			exitCode: -1,
+		}
 	}
 	return snapshot, nil
+}
+
+func classifyAccountProbeError(err error, stderr string) *accountProbeError {
+	exitCode := -1
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		exitCode = exitErr.ExitCode()
+	}
+	exitSuffix := ""
+	if exitCode >= 0 {
+		exitSuffix = fmt.Sprintf("（退出码 %d）", exitCode)
+	}
+	lower := strings.ToLower(stderr)
+	switch {
+	case errors.Is(err, context.DeadlineExceeded) || strings.Contains(stderr, "读取 Claude 订阅状态超时"):
+		return &accountProbeError{
+			message:  "读取账号状态超时，请确认环境已启动并检查 Claude Code",
+			cause:    err,
+			exitCode: exitCode,
+		}
+	case isAccountProbeNamespacePermissionError(lower):
+		return &accountProbeError{
+			message:  "无法隔离读取账号状态：客机命名空间或 sudo 权限受限，请检查客机 unshare/user namespace 权限" + exitSuffix,
+			cause:    err,
+			exitCode: exitCode,
+		}
+	case strings.Contains(stderr, "未找到官方 Claude Code CLI") ||
+		strings.Contains(lower, "claude is not installed") ||
+		strings.Contains(lower, "claude: command not found"):
+		return &accountProbeError{
+			message:  "未找到官方 Claude Code CLI，请先在环境中安装后重试",
+			cause:    err,
+			exitCode: exitCode,
+		}
+	case strings.Contains(stderr, "无法读取 Claude 订阅状态"):
+		return &accountProbeError{
+			message:  "无法读取 Claude 订阅状态，请确认官方 Claude Code CLI 可正常运行后重试",
+			cause:    err,
+			exitCode: exitCode,
+		}
+	case strings.Contains(lower, "/usr/local/bin/cage-claude-account") &&
+		(strings.Contains(lower, "no such file") || strings.Contains(lower, "not found") || strings.Contains(lower, "permission denied")),
+		exitCode == 127 && !strings.Contains(lower, "unshare"):
+		return &accountProbeError{
+			message:  "客机账号组件缺失或不可执行，请同步环境组件后重试" + exitSuffix,
+			cause:    err,
+			exitCode: exitCode,
+		}
+	case exitCode == 255 ||
+		strings.Contains(lower, "connection refused") ||
+		strings.Contains(lower, "connection reset") ||
+		strings.Contains(lower, "could not resolve") ||
+		strings.Contains(lower, "broken pipe") ||
+		strings.Contains(lower, "no route to host"):
+		return &accountProbeError{
+			message:  "无法连接客机以读取账号状态，请确认环境已启动" + exitSuffix,
+			cause:    err,
+			exitCode: exitCode,
+		}
+	default:
+		return &accountProbeError{
+			message:  "无法读取账号状态，请确认环境已启动并同步环境组件" + exitSuffix,
+			cause:    err,
+			exitCode: exitCode,
+		}
+	}
+}
+
+func isAccountProbeNamespacePermissionError(lower string) bool {
+	if strings.Contains(lower, "unshare") &&
+		(strings.Contains(lower, "operation not permitted") ||
+			strings.Contains(lower, "permission denied") ||
+			strings.Contains(lower, "not permitted") ||
+			strings.Contains(lower, "unshare failed") ||
+			strings.Contains(lower, "not found")) {
+		return true
+	}
+	if strings.Contains(lower, "setpriv") &&
+		(strings.Contains(lower, "invalid argument") ||
+			strings.Contains(lower, "operation not permitted") ||
+			strings.Contains(lower, "permission denied")) {
+		return true
+	}
+	if strings.Contains(lower, "mount:") &&
+		(strings.Contains(lower, "operation not permitted") ||
+			strings.Contains(lower, "permission denied") ||
+			strings.Contains(lower, "must be superuser")) {
+		return true
+	}
+	if strings.Contains(lower, "sudo:") &&
+		(strings.Contains(lower, "password is required") ||
+			strings.Contains(lower, "terminal is required") ||
+			strings.Contains(lower, "not allowed") ||
+			strings.Contains(lower, "effective uid is not 0")) {
+		return true
+	}
+	return false
 }
 
 func claudeSnapshotCommand(id string) string {

@@ -7,10 +7,11 @@ import { open } from "node:fs/promises";
 import http from "node:http";
 import { auditBrowser } from "./browser-audit.mjs";
 import { BrowserVault } from "./browser-vault.mjs";
-import { LoginBrowser, isClaudeSignIn } from "./browser-login.mjs";
+import { LoginBrowser, formatCDPDiagnostic, isClaudeSignIn } from "./browser-login.mjs";
 import { PrivateBrowser } from "./browser-private.mjs";
 import { browserCookies, AccountLoginCookies } from "./browser-cookies.mjs";
 import { BrowserExtensions, extensionUploadLimit } from "./browser-extensions.mjs";
+import { BrowserHistory } from "./browser-history.mjs";
 import { BrowserClipboard } from "./browser-clipboard.mjs";
 import { BrowserVisibility, rememberOpener, targetAfterClose } from "./browser-visibility.mjs";
 import { BrowserWheel, createActivitySignal, createPointerProbe } from "./browser-wheel.mjs";
@@ -24,8 +25,14 @@ const config = JSON.parse(
   readFileSync("/etc/claude-cage/browser-control.json", "utf8"),
 );
 const displayScale = config.display_scale === 1.5 ? 1.5 : 2;
+const themeFile = "/home/cage-browser/theme.json";
+let browserTheme = "";
+try {
+  const saved = JSON.parse(readFileSync(themeFile, "utf8")).variant;
+  if (saved === "light" || saved === "dark") browserTheme = saved;
+} catch {}
 // Started before Chromium, which then opens at this density.
-const displaySettings = createDisplaySettings({ file: "/home/cage-browser/.cache/cage-display/xsettings.conf", initial: displayScale });
+const displaySettings = createDisplaySettings({ file: "/home/cage-browser/.cache/cage-display/xsettings.conf", initial: displayScale, initialTheme: browserTheme });
 process.on("exit", () => displaySettings.close());
 const selectionFile = "/home/cage-browser/workbench-state.json";
 const homepageFile = "/home/cage-browser/homepage.json";
@@ -103,9 +110,11 @@ let navigation = { id: "", back: false, forward: false }, navigationSequence = 0
 // Context IDs and unique blank-page URLs are registered before target creation.
 const auditExclusions = new Set();
 const auditCreations = new Set(), deferredTargetInfo = new Map();
+let openingTargets = 0;
 const loginBrowser = new LoginBrowser(cdp, new AccountLoginCookies("/home/cage-browser/LoginProfiles"));
 const privateBrowser = new PrivateBrowser(cdp, downloadPath);
 const browserExtensions = new BrowserExtensions({ directory: "/home/cage-browser", cdp, control: splitController, protectedID: extensionId });
+const browserHistory = new BrowserHistory({ cdp, control: splitController });
 const pending = new Map(),
   targets = new Map(),
   sessions = new Map();
@@ -142,7 +151,7 @@ function canHideBrowser() {
   browserVNCViewers = false;
   return true;
 }
-const visibility = new BrowserVisibility(cdp, () => [...targets.keys()], canHideBrowser);
+const visibility = new BrowserVisibility(cdp, () => [...targets.keys()], canHideBrowser, () => activeId);
 let checkingBrowserViewers = false;
 setInterval(() => {
   if (!ready || visibility.visible || checkingBrowserViewers) return;
@@ -150,7 +159,7 @@ setInterval(() => {
   try { canHideBrowser(); } catch { return; }
   if (previous === browserVNCViewers) return;
   checkingBrowserViewers = true;
-  void visibility.set(false).catch(() => {}).finally(() => { checkingBrowserViewers = false; });
+  void visibility.sync().catch(() => {}).finally(() => { checkingBrowserViewers = false; });
 }, 1000).unref();
 const browserClipboard = new BrowserClipboard(cdp, ({ id, text, context }) => {
   if (id !== activeId || !targets.has(id)) return;
@@ -223,14 +232,14 @@ function updateTargetInfo(t) {
   const previous = targets.get(t.targetId);
   targets.set(t.targetId, privateBrowser.tab(loginBrowser.tab(rememberOpener(t, previous), previous)));
   if (isNativeNewTab(t.url)) void restoreHomepage(t.targetId).catch(error => console.error("Could not open homepage:", error.message));
-  if (fresh) void session(t.targetId).catch(() => {});
+  if (fresh && !openingTargets) void session(t.targetId).catch(() => {});
   if (t.targetId === activeId) rememberSelection();
   broadcastState();
   if (!activeId) activeId = t.targetId;
   if (ready && fresh && t.openerId)
     void activate(t.targetId, true).catch(() => {});
-  else if (ready && fresh && !visibility.visible)
-    void visibility.set(false).catch(() => {});
+  else if (ready && fresh && !openingTargets)
+    void visibility.sync().catch(() => {});
 }
 
 function restoreHomepage(id) {
@@ -369,6 +378,15 @@ chrome.stdio[4].on("data", (chunk) => {
       uploads.cancelTab(uploadTab);
   }
 });
+// systemd restarts the controller after an unexpected error. Record its kind
+// and source line only: error messages can carry page addresses.
+const fatal = kind => error => {
+  const frame = String(error?.stack || "").split("\n").find(line => line.trimStart().startsWith("at "))?.trim();
+  console.error(`Browser controller ${kind}: ${error?.name || typeof error}${error?.code ? ` ${error.code}` : ""}${frame ? ` ${frame}` : ""}`);
+  process.exit(1);
+};
+process.on("uncaughtException", fatal("uncaught exception"));
+process.on("unhandledRejection", fatal("unhandled rejection"));
 chrome.on("exit", (code, signal) => {
   // Record only how Chromium ended; never page addresses or contents.
   if (!shuttingDown) console.error(`Chromium exited unexpectedly: code=${code} signal=${signal}`);
@@ -386,19 +404,25 @@ for (const channel of chrome.stdio.slice(3))
     console.error(`Chromium control pipe failed: ${error?.code || error?.name || "unknown"}`);
     process.exit(1);
   });
-async function session(id) {
+async function applyTabColorScheme(sessionId) {
+  await cdp("Emulation.setEmulatedMedia", {
+    features: [{ name: "prefers-color-scheme", value: browserTheme }],
+  }, sessionId).catch(() => {});
+}
+async function session(id, timeout = 12000) {
   if (!targets.has(id)) throw new Error("Tab no longer exists");
   if (!sessions.has(id))
     sessions.set(
       id,
-      cdp("Target.attachToTarget", { targetId: id, flatten: true }).then(async (r) => {
+      cdp("Target.attachToTarget", { targetId: id, flatten: true }, undefined, timeout).then(async (r) => {
         uploadSessions.set(r.sessionId, id);
-        await cdp("Page.enable", {}, r.sessionId);
-        await cdp("Page.setInterceptFileChooserDialog", { enabled: true }, r.sessionId);
+        await cdp("Page.enable", {}, r.sessionId, timeout);
+        await cdp("Page.setInterceptFileChooserDialog", { enabled: true }, r.sessionId, timeout);
         await browserClipboard.attach(r.sessionId, id).then(result => {
           if (result?.skipped.length) console.warn("Browser copy observer skipped a modified or replaced document; reload the page to enable copy buttons.");
         }).catch(() => console.warn("Browser copy observer unavailable for this page."));
         await vault.attach(id, r.sessionId).catch(() => {});
+        if (browserTheme) await applyTabColorScheme(r.sessionId);
         return r.sessionId;
       }).catch(error => { sessions.delete(id); throw error; }),
     );
@@ -527,7 +551,16 @@ async function activate(id, focus = false) {
   if (!targets.has(id)) throw new Error("Tab no longer exists");
   // Restored background tabs may have no live renderer until activated.
   // Page.enable must not block the command that wakes that renderer.
-  await visibility.activate(id);
+  try {
+    await visibility.activate(id);
+  } catch (error) {
+    if (!focus) throw error;
+    // A newly focused tab (such as a login page opened while the browser view
+    // is hidden) must still open and navigate even if Openbox lags on window
+    // state sync; the subsequent /visibility call re-syncs fullscreen state.
+    console.error("Browser visibility sync deferred during focus:", formatCDPDiagnostic(error));
+    await cdp("Target.activateTarget", { targetId: id }).catch(() => {});
+  }
   await session(id);
   activeId = id;
   void refreshNavigation();
@@ -548,24 +581,29 @@ function checkedURL(value) {
 }
 async function newTab(url = homeURL, incognito = false) {
   const address = checkedURL(url);
-  if (incognito) {
-    const result = await privateBrowser.open("about:blank", async tab => {
-      targets.set(tab.targetId, tab);
-      await activate(tab.targetId, true);
-    });
-    await cdp("Page.navigate", { url: address }, await session(result.id));
-    return result;
+  openingTargets++;
+  try {
+    if (incognito) {
+      const result = await privateBrowser.open("about:blank", async tab => {
+        targets.set(tab.targetId, tab);
+        await activate(tab.targetId, true);
+      });
+      await cdp("Page.navigate", { url: address }, await session(result.id), 12000);
+      return result;
+    }
+    const { targetId } = await cdp("Target.createTarget", {
+      url: "about:blank",
+      background: false,
+    }, undefined, 12000);
+    // The response and discovery event may arrive in either order.
+    if (!targets.has(targetId))
+      targets.set(targetId, { targetId, type: "page", url: "about:blank", title: "" });
+    await activate(targetId, true);
+    await cdp("Page.navigate", { url: address }, await session(targetId), 12000);
+    return { id: targetId };
+  } finally {
+    openingTargets--;
   }
-  const { targetId } = await cdp("Target.createTarget", {
-    url: "about:blank",
-    background: false,
-  });
-  // The response and discovery event may arrive in either order.
-  if (!targets.has(targetId))
-    targets.set(targetId, { targetId, type: "page", url: "about:blank", title: "" });
-  await activate(targetId, true);
-  await cdp("Page.navigate", { url: address }, await session(targetId));
-  return { id: targetId };
 }
 async function browserSettings(section = "general") {
   if (!["general", "appearance", "privacy", "extensions", "about"].includes(section)) throw new Error("设置分类无效");
@@ -725,8 +763,14 @@ async function resizeDisplay(width, height, density) {
   const name = `cage-${width}x${height}`;
   if (displaySize === name) {
     // A viewer attaching at an unchanged size still restores the full rate.
-    await runFile("/usr/bin/xrandr", ["--output", "VNC-0", "--mode", name]).catch(() => {});
-    return result;
+    // A display that restarted no longer has this mode and is set up again,
+    // instead of keeping its default size behind a successful reply.
+    try {
+      await runFile("/usr/bin/xrandr", ["--output", "VNC-0", "--mode", name]);
+      return result;
+    } catch {
+      displaySize = "";
+    }
   }
   const { stdout } = await runFile("/usr/bin/xrandr", ["--query"]);
   if (!stdout.includes(name)) {
@@ -859,12 +903,13 @@ const server = http.createServer(async (req, res) => {
       catch (error) { res.writeHead(error.status || 503); res.end("{}"); }
       return;
     }
-    if (["/phone-browser/open", "/phone-browser/action", "/phone-browser/frame", "/phone-browser/close"].includes(req.url)) {
+    if (["/phone-browser/open", "/phone-browser/action", "/phone-browser/frame", "/phone-browser/close", "/phone-browser/history"].includes(req.url)) {
       // Load only for a phone operation, keeping desktop startup independent.
       const { PhoneBrowser } = await import("./browser-phone.mjs");
       phoneBrowser ??= new PhoneBrowser({ binary: browserBinary });
       try {
-        res.end(JSON.stringify(await phoneBrowser.run(req.url.slice("/phone-browser/".length), input)));
+        const op = req.url.slice("/phone-browser/".length);
+        res.end(JSON.stringify(op === "history" ? await phoneBrowser.history(input) : await phoneBrowser.run(op, input)));
       } catch (error) {
         res.writeHead([403, 409, 410, 503].includes(error.status) ? error.status : 400);
         res.end(JSON.stringify({ error: error.message }));
@@ -891,6 +936,10 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify(downloads.retry(input.id)));
       return;
     }
+    if (req.url === "/download-discard") {
+      res.end(JSON.stringify(downloads.discard(input.id)));
+      return;
+    }
     if (req.url === "/audit") {
       if (typeof input.timezone !== "string" || input.timezone.length > 128) throw new Error("诊断时区无效");
       res.end(JSON.stringify(await auditBrowser(auditCDP, auditExclusions, input.network === true, input.timezone, input.device === true)));
@@ -901,14 +950,20 @@ const server = http.createServer(async (req, res) => {
         try { return await vault.request(input); }
         catch (error) { return { vaultError: error.message }; }
       }
-      if (req.url === "/login-open" || (req.url === "/new" && (input.route || isClaudeSignIn(input.url)))) {
+      const accountHome = input.account && (input.url === "https://claude.ai" || input.url === "https://claude.ai/");
+      if (req.url === "/login-open" || (req.url === "/new" && (input.route || accountHome || isClaudeSignIn(input.url)))) {
         const external = req.url === "/new" && !isClaudeSignIn(input.url);
         const privateLogin = !external && !existsSync("/etc/claude-cage/login-browser-mode");
-        return loginBrowser.open(input.login || randomUUID(), input.url, async tab => {
-          targets.set(tab.targetId, loginBrowser.tab(tab));
-          await activate(tab.targetId, true);
-          return session(tab.targetId);
-        }, { private: privateLogin, route: input.route, account: input.account, external });
+        openingTargets++;
+        try {
+          return await loginBrowser.open(input.login || randomUUID(), input.url, async tab => {
+            targets.set(tab.targetId, loginBrowser.tab(tab));
+            await activate(tab.targetId, true);
+            return session(tab.targetId);
+          }, { private: privateLogin, route: input.route, account: input.account, external });
+        } finally {
+          openingTargets--;
+        }
       }
       if (req.url === "/login-finish") {
         await loginBrowser.finish(input.login);
@@ -933,6 +988,7 @@ const server = http.createServer(async (req, res) => {
         const { product, protocolVersion } = await cdp("Browser.getVersion");
         return { product, protocolVersion };
       }
+      if (req.url === "/history") return browserHistory.request(input);
       if (req.url === "/extensions") {
         const result = await browserExtensions.request(input);
         if (input.mode === "options" && result.url) {
@@ -957,6 +1013,20 @@ const server = http.createServer(async (req, res) => {
       if (req.url === "/visibility") {
         await visibility.set(input.visible);
         return { ok: true };
+      }
+      if (req.url === "/theme") {
+        const next = input.variant === "light" || input.variant === "dark" ? input.variant : "";
+        if (input.variant !== undefined && input.variant !== "" && next === "")
+          throw new Error("Invalid browser theme");
+        browserTheme = next;
+        if (browserTheme) {
+          writeFileSync(themeFile, JSON.stringify({ variant: browserTheme }), { mode: 0o600 });
+        } else {
+          rmSync(themeFile, { force: true });
+        }
+        displaySettings.setTheme(browserTheme);
+        await Promise.allSettled([...sessions.values()].map(async pendingSession => applyTabColorScheme(await pendingSession)));
+        return { ok: true, variant: browserTheme };
       }
       if (req.url === "/resize")
         return resizeDisplay(input.width, input.height, input.scale);
@@ -1013,11 +1083,17 @@ const server = http.createServer(async (req, res) => {
           });
           // Keep consecutive close/new commands ordered after target destruction.
           closed.catch(() => {});
+          let retry;
           try {
             await cdp("Target.closeTarget", { targetId: id });
+            // Chromium can accept a close while a new window's first
+            // navigation is starting, then keep the page. Ask again.
+            retry = setInterval(() => {
+              if (targets.has(id)) void cdp("Target.closeTarget", { targetId: id }).catch(() => {});
+            }, 750);
             await closed;
             if (wasPrivate) await privateBrowser.prune();
-          } finally { clearTimeout(timer); closingTargets.delete(id); }
+          } finally { clearTimeout(timer); clearInterval(retry); closingTargets.delete(id); }
           break;
         }
         case "/navigate":

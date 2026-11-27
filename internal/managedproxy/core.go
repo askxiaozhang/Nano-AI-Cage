@@ -72,7 +72,16 @@ func CorePath() (string, error) {
 			return filepath.Clean(p), nil
 		}
 	}
-	return "", errors.New("Cage 随附代理核心缺失，请重新安装完整应用；开发构建请运行 scripts/fetch-proxy-core.sh")
+	return "", missingCoreError(name, runtime.GOOS)
+}
+
+// missingCoreError names where CorePath looks, without the host path.
+func missingCoreError(name, goos string) error {
+	build := "源码构建请运行 make cage-core"
+	if goos == "windows" {
+		build = "源码构建请运行 scripts/build-windows.ps1"
+	}
+	return fmt.Errorf("Cage 随附代理核心缺失：%s 应与 cage 可执行文件位于同一目录，或位于其上级目录的 proxy-core 中；请重新安装完整应用，%s", name, build)
 }
 func Validate(ctx context.Context, profile string, s Store) error {
 	core, err := CorePath()
@@ -114,8 +123,12 @@ func Validate(ctx context.Context, profile string, s Store) error {
 	return nil
 }
 func API(ctx context.Context, profile, method, path string, body any, reply any) error {
+	return apiOnSocket(ctx, Socket(profile), method, path, body, reply)
+}
+
+func apiOnSocket(ctx context.Context, socketPath, method, path string, body any, reply any) error {
 	tr := &http.Transport{Proxy: nil, DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-		return (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, "unix", Socket(profile))
+		return (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, "unix", socketPath)
 	}}
 	defer tr.CloseIdleConnections()
 	client := &http.Client{Transport: tr, Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("redirect refused") }}
@@ -148,9 +161,11 @@ func API(ctx context.Context, profile, method, path string, body any, reply any)
 	return nil
 }
 
-// DelayError explains a failed /proxies/{id}/delay call. The core answers 404
-// for a node it has not loaded, 504 when the test URL timed out and 503 when the
-// node failed to connect or respond. Only fixed text and the API stage are
+// DelayError explains a failed /proxies/{id}/delay call. Checked against the
+// bundled mihomo v1.19.33 hub/route: 404 when the node is not loaded
+// (findProxyByName), 504 when the test timed out, 503 when the node failed to
+// connect or respond, 400 for an invalid query. 408 is not sent by that version
+// and is treated as a timeout only for forward compatibility. Only fixed text and the API stage are
 // reported; node addresses and core output stay out of the message.
 func DelayError(err error) error {
 	var core *coreError
@@ -174,10 +189,48 @@ func DelayError(err error) error {
 }
 
 func Running(ctx context.Context, profile string, s Store) bool {
-	return checkRunning(ctx, profile, s) == nil
+	return RunningStage(ctx, profile, s) == ""
+}
+
+// RunningStage reports a fixed diagnostic stage code when the managed proxy
+// core is not ready for the selected route. It never includes node addresses,
+// credentials, headers, or host paths.
+func RunningStage(ctx context.Context, profile string, s Store) string {
+	return runningStageError(checkRunning(ctx, profile, s))
+}
+
+func runningStageError(err error) string {
+	if err == nil {
+		return ""
+	}
+	var core *coreError
+	if errors.As(err, &core) && core.stage != "" {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return core.stage + ".timeout"
+		}
+		return core.stage
+	}
+	if errors.Is(err, ErrLocalProxyNode) {
+		return "route.local_node"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	return "route"
 }
 
 func checkRunning(ctx context.Context, profile string, s Store) error {
+	if _, err := s.Route(); err != nil {
+		return err
+	}
+	bound, err := BoundInterface(filepath.Join(Dir(profile), "config.yaml"))
+	if err != nil || bound == "" {
+		return &coreError{stage: "readiness.bound-interface", err: err}
+	}
+	return checkRunningSocket(ctx, Socket(profile), bound, s)
+}
+
+func checkRunningSocket(ctx context.Context, socketPath, bound string, s Store) error {
 	var cfg struct {
 		Port         int    `json:"mixed-port"`
 		Interface    string `json:"interface-name"`
@@ -186,11 +239,7 @@ func checkRunning(ctx context.Context, profile string, s Store) error {
 	var group struct {
 		Now string `json:"now"`
 	}
-	bound, err := BoundInterface(filepath.Join(Dir(profile), "config.yaml"))
-	if err != nil || bound == "" {
-		return &coreError{stage: "readiness.bound-interface", err: err}
-	}
-	if err := API(ctx, profile, "GET", "/configs", nil, &cfg); err != nil {
+	if err := apiOnSocket(ctx, socketPath, "GET", "/configs", nil, &cfg); err != nil {
 		return &coreError{stage: "readiness.configs", err: err}
 	}
 	if cfg.Port != s.Port {
@@ -202,11 +251,32 @@ func checkRunning(ctx context.Context, profile string, s Store) error {
 	if !cfg.UnifiedDelay {
 		return &coreError{stage: "readiness.unified-delay"}
 	}
-	if err := API(ctx, profile, "GET", "/proxies/"+Group, nil, &group); err != nil {
+	if err := apiOnSocket(ctx, socketPath, "GET", "/proxies/"+Group, nil, &group); err != nil {
 		return &coreError{stage: "readiness.group", err: err}
 	}
 	if group.Now != s.Selected {
 		return &coreError{stage: "readiness.selection"}
+	}
+	if s.HasRelayGroups() {
+		hops, err := s.ResolveRoute()
+		if err != nil {
+			return err
+		}
+		for _, hop := range hops {
+			if hop.Relay == nil {
+				continue
+			}
+			var relayGroup struct {
+				Type string   `json:"type"`
+				All  []string `json:"all"`
+			}
+			if err := apiOnSocket(ctx, socketPath, "GET", "/proxies/"+hop.GroupName, nil, &relayGroup); err != nil {
+				return &coreError{stage: "readiness.relay-group", err: err}
+			}
+			if !relayGroupMatches(relayGroup.Type, relayGroup.All, hop) {
+				return &coreError{stage: "readiness.relay-group"}
+			}
+		}
 	}
 	return nil
 }
@@ -214,6 +284,7 @@ func label(profile string) string {
 	h := sha256.Sum256([]byte(profile))
 	return fmt.Sprintf("local.claude-cage.managed-proxy.%x", h[:8])
 }
+
 // coreReadyTimeout matches Linux and Windows; a freshly signed core can take
 // several seconds on its first launch.
 const coreReadyTimeout = 15 * time.Second
@@ -247,6 +318,9 @@ func Stop(profile string) error {
 	return nil
 }
 func Start(ctx context.Context, profile string, s Store) error {
+	if _, err := s.Route(); err != nil {
+		return err
+	}
 	if runtime.GOOS == "windows" {
 		return startWindowsCore(ctx, profile, s)
 	}
@@ -261,8 +335,7 @@ func Start(ctx context.Context, profile string, s Store) error {
 		return err
 	}
 	path := filepath.Join(Dir(profile), "config.yaml")
-	bound, _ := BoundInterface(path)
-	if bound == name && Running(ctx, profile, s) {
+	if BindingMatches(path, name) && Running(ctx, profile, s) {
 		return nil
 	}
 	if err := Validate(ctx, profile, s); err != nil {

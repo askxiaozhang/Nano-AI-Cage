@@ -41,7 +41,7 @@ func agentConnectTarget(ctx context.Context, configPath string, target AgentTarg
 		return nil, &AgentError{Code: "service_unavailable", Message: "Open the Cage desktop before managing client configuration.", NextAction: "open_desktop"}
 	}
 	want, err := currentController()
-	if err != nil || !want.matches(c.launch.Controller) || (target.Scope != "client" && !c.launch.DesktopGateway) || (target.Scope == "client" && !c.launch.ClientOnly) || filepath.Clean(c.launch.ConfigPath) != filepath.Clean(path) {
+	if err != nil || !want.matches(c.launch.Controller) || (target.Scope != "client" && !c.launch.DesktopGateway) || (target.Scope == "client" && !c.launch.ClientOnly) || !sameControllerConfig(c.launch.ConfigPath, path) {
 		c.close()
 		return nil, &AgentError{Code: "controller_mismatch", Message: "The desktop controller does not match this CLI and configuration.", NextAction: "open_desktop"}
 	}
@@ -120,6 +120,7 @@ func AgentRequest(ctx context.Context, configPath string, target AgentTarget, me
 		connection = target.Connection
 	}
 	req.Header.Set(connectionHeader, connection)
+	req.Header.Set(jobInitiatorHeader, jobInitiatorAgent)
 	response, err := c.client.Do(req)
 	if err != nil {
 		return result, &AgentError{Code: "outcome_unknown", Message: "The request was interrupted. Inspect the original target before repeating a mutation.", NextAction: "status"}
@@ -130,8 +131,10 @@ func AgentRequest(ctx context.Context, configPath string, target AgentTarget, me
 	result.Recovery = response.Header.Get("X-Cage-Recovery")
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
-		e := agentHTTPError(response.StatusCode)
-		e.Message += " " + agentRedact(strings.TrimSpace(string(body)))
+		e := agentResponseError(response.StatusCode, result.Recovery)
+		if e.Code != "account_missing" {
+			e.Message += " " + agentRedact(strings.TrimSpace(string(body)))
+		}
 		return result, e
 	}
 	if output != "" {

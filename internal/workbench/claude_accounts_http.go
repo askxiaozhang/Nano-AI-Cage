@@ -3,11 +3,28 @@ package workbench
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/sylvinus/agent-vm/internal/diagnostics"
 )
+
+type accountProbeError struct {
+	message  string
+	cause    error
+	exitCode int
+}
+
+func (e *accountProbeError) Error() string {
+	if e.message != "" {
+		return e.message
+	}
+	return "无法读取账号状态，请确认环境已启动并检查 Claude Code"
+}
+func (e *accountProbeError) Unwrap() error { return e.cause }
 
 var errClaudeAccessLost = errors.New("Cage 已锁定，请先解锁")
 
@@ -53,6 +70,8 @@ func (s *Server) mutateClaudeAccounts(w http.ResponseWriter, r *http.Request) {
 		err = s.joinClaudeDefault(r.Context(), input.Identity)
 	case "cancel":
 		_, err = s.cancelClaudeDraft(input.ID)
+	case "delete":
+		_, err = s.deleteClaudeAccount(r.Context(), input.ID)
 	case "usage_panel":
 		view, list, viewErr := s.claudePanelView(r.Context())
 		if viewErr != nil {
@@ -187,10 +206,132 @@ func (s *Server) cancelClaudeDraft(id string) (claudeAccountList, error) {
 			return list, errors.New("请先关闭该账号的 Desktop，再撤销添加")
 		}
 	}
+	if a.DesktopInstanceID != "" {
+		delete(list.DesktopLabels, a.DesktopInstanceID)
+	}
 	list.Accounts = slices.DeleteFunc(list.Accounts, func(a claudeAccount) bool { return a.ID == id })
+	if list.desktopCount() == 0 {
+		list.DefaultDesktopRemoved = false
+	}
 	err = s.saveClaudeAccounts(list)
 	if err == nil {
 		delete(m.attempted, id)
+	}
+	return list, err
+}
+
+// Removes a Claude account from Cage's registry and scheduling while preserving
+// guest CLI history and files. Refuses while terminals, mobile CLI turns,
+// Desktop services, or network namespace processes are still using it.
+func (s *Server) deleteClaudeAccount(ctx context.Context, id string) (claudeAccountList, error) {
+	if !validClaudeID(id) {
+		return claudeAccountList{}, errors.New("未找到待删除的账号")
+	}
+	if !s.op.TryLock() {
+		return claudeAccountList{}, errors.New("环境正在处理其他操作，请稍后重试")
+	}
+	defer s.op.Unlock()
+	m := &s.claudeAccounts
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	list, err := s.loadClaudeAccounts()
+	if err != nil {
+		return list, err
+	}
+	for {
+		a := list.find(id)
+		if a == nil {
+			return list, nil
+		}
+		active := m.usageActive[claudeIdentityHash(a.Email, a.Organization)]
+		if active == nil {
+			break
+		}
+		m.mu.Unlock()
+		select {
+		case <-active.done:
+		case <-ctx.Done():
+			m.mu.Lock()
+			return list, errors.New("账号状态检查尚未结束，请稍后重试")
+		}
+		m.mu.Lock()
+		list, err = s.loadClaudeAccounts()
+		if err != nil {
+			return list, err
+		}
+	}
+	a := list.find(id)
+	if a == nil {
+		return list, nil
+	}
+	if m.refreshing[id] != nil {
+		return list, errors.New("账号状态检查尚未结束，请稍后重试")
+	}
+	for _, session := range s.terminals.snapshot() {
+		if session["claude_account_id"] == id && session["closed"] == false {
+			return list, errors.New("请先结束该账号的登录或工作终端，再删除账号")
+		}
+	}
+	if s.activeAccountRuns()[id] > 0 {
+		return list, errors.New("请等待该账号的 CLI 任务结束后再删除账号")
+	}
+	if s.accountDesktopsSupported() && s.vmRunning() {
+		checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		desktopID := a.DesktopInstanceID
+		if desktopID == "" {
+			desktopID = a.ID
+		}
+		unit := "desktop-" + desktopID + ".service"
+		if desktopID == "default" {
+			unit = "cage-claude-desktop.service"
+		}
+		state, err := s.guest(checkCtx, "systemctl show --property=ActiveState --value "+unit)
+		if err != nil {
+			return list, errors.New("无法确认 Desktop 已关闭，请重新连接环境后再删除账号")
+		}
+		switch strings.TrimSpace(string(state)) {
+		case "inactive", "failed":
+		default:
+			return list, errors.New("请先关闭该账号的 Desktop，再删除账号")
+		}
+		if a.ProxyNodeID != "" {
+			if err := s.checkAccountNetworkIdle(checkCtx, a.ID, "无法确认账号进程状态，暂未删除账号", "该账号仍有后台进程，请结束后再删除账号"); err != nil {
+				return list, err
+			}
+		}
+	}
+	removed := *a
+	list.Accounts = slices.DeleteFunc(list.Accounts, func(item claudeAccount) bool { return item.ID == id })
+	if removed.Email != "" {
+		list.dismissDefault(claudeIdentityHash(removed.Email, removed.Organization))
+	}
+	if removed.DesktopInstanceID != "" && removed.DesktopInstanceID != "default" {
+		delete(list.DesktopLabels, removed.DesktopInstanceID)
+		for old, target := range list.DesktopRedirects {
+			if old == removed.DesktopInstanceID || target == removed.DesktopInstanceID {
+				delete(list.DesktopRedirects, old)
+			}
+		}
+	}
+	if list.desktopCount() == 0 {
+		list.DefaultDesktopRemoved = false
+	}
+	err = s.saveClaudeAccounts(list)
+	if err == nil {
+		delete(m.attempted, id)
+		delete(m.notices, id)
+		if m.lastPick == id {
+			m.lastPick = ""
+		}
+		for project, pick := range m.recent {
+			if pick.id == id {
+				delete(m.recent, project)
+			}
+		}
+		if removed.ProxyNodeID != "" {
+			s.stopAccountNetworkLink(id)
+		}
 	}
 	return list, err
 }
@@ -234,7 +375,7 @@ func (s *Server) pollClaudeAccounts(list claudeAccountList) {
 	var oldest time.Time
 	for _, a := range list.Accounts {
 		attempt := m.attempted[a.ID]
-		if m.usageActive[claudeIdentityHash(a.Email, a.Organization)] == nil && a.Source != "default" && a.Enabled && now.Sub(attempt) >= time.Minute && (id == "" || attempt.Before(oldest)) {
+		if m.usageActive[claudeIdentityHash(a.Email, a.Organization)] == nil && a.Source != "default" && !a.CodeUnlinked && a.Enabled && now.Sub(attempt) >= time.Minute && (id == "" || attempt.Before(oldest)) {
 			id, oldest = a.ID, attempt
 		}
 	}
@@ -377,7 +518,17 @@ func (s *Server) runClaudeRefresh(parent context.Context, id, guestID string, ca
 		return
 	}
 	if probeErr != nil {
-		err = errors.New("无法读取账号状态，请确认环境已启动并检查 Claude Code")
+		if errors.Is(probeErr, errAccountRouteFailed) || errors.Is(probeErr, errUnsupportedAccountNetwork) {
+			err = probeErr
+			return
+		}
+		diagnostics.Log("warn", "accounts", fmt.Sprintf("probe claude account failed: %v", probeErr))
+		var classified *accountProbeError
+		if errors.As(probeErr, &classified) {
+			err = classified
+			return
+		}
+		err = &accountProbeError{cause: probeErr, exitCode: -1}
 		return
 	}
 	m.mu.Lock()
@@ -419,11 +570,12 @@ func (s *Server) runClaudeRefresh(parent context.Context, id, guestID string, ca
 							err = list.observe(existing.ID, recovered, time.Now())
 							notice = "已恢复已有账号的登录，保留原目录、会话和参与设置"
 						} else {
-							notice = "此身份已在账号列表中，本次登录未更新原账号。请先等待该账号的手机任务结束，并关闭仍使用它的终端，再从原账号卡片重新登录。"
+							notice = "此身份已在账号列表中，本次登录未更新原账号。请先等待该账号的 CLI 任务结束，并关闭仍使用它的终端，再从原账号卡片重新登录。"
 						}
 					}
 				} else {
 					list.Accounts = append(list.Accounts, claudeAccount{ID: id, Source: "managed", Label: reading.email(), ProxyNodeID: list.PendingProxyNode})
+					list.undismissDefault(reading.subject())
 					err = list.observe(id, reading, time.Now())
 					notice = "已保存 Claude 账号，可在创建实例时选择"
 				}
@@ -464,8 +616,8 @@ func (s *Server) recoverClaudeLogin(ctx context.Context, accountID, target, sour
 		return claudeGuestSnapshot{}, errTerminalBusy
 	}
 	defer s.op.Unlock()
-	if s.mobileCLI.activeAccounts()[accountID] > 0 {
-		return claudeGuestSnapshot{}, errors.New("请先结束该账号正在执行的移动 CLI 轮次，再重新登录")
+	if s.activeAccountRuns()[accountID] > 0 {
+		return claudeGuestSnapshot{}, errors.New("请先结束该账号正在执行的 CLI 任务，再重新登录")
 	}
 	if login, err := s.terminals.existingClaudeLogin(accountID, true); err != nil {
 		return claudeGuestSnapshot{}, err

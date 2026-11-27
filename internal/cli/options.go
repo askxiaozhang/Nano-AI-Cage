@@ -11,12 +11,11 @@ import (
 type VMOpts struct {
 	Disk, Memory, CPUs int // 0: not given
 	SSHPort            int // -1: not given; 0 gives the port back to Lima
-	Reset              bool
-	ReadOnly           bool
-	Scratch            bool
-	UnsafeWritableGit  bool
-	UnsafeNoPrompts    bool
-	RM                 bool // --rm: delete the VM after the command
+	Reset           bool
+	ReadOnly        bool
+	Scratch         bool
+	UnsafeNoPrompts bool
+	RM              bool // --rm: delete the VM after the command
 }
 
 func newVMOpts() VMOpts {
@@ -47,9 +46,6 @@ func (o *VMOpts) take(args []string) (int, error) {
 		return 1, nil
 	case "--scratch":
 		o.Scratch = true
-		return 1, nil
-	case "--unsafe-writable-git", "--unsafe-writable-git=1":
-		o.UnsafeWritableGit = true
 		return 1, nil
 	case "--unsafe-disable-security-prompts":
 		o.UnsafeNoPrompts = true
@@ -108,6 +104,25 @@ func (o *VMOpts) takeAll(args []string) (taken, rest []string, err error) {
 		taken = append(taken, args[:n]...)
 		args = args[n:]
 	}
+}
+
+// StartArgs validates the options of Cage's persistent start. Only --reset is
+// accepted: every Cage start applies the app's CPU and memory allocation, so a
+// value given here would be silently replaced.
+func StartArgs(args []string) ([]string, error) {
+	var result []string
+	for _, arg := range args {
+		name, _, _ := strings.Cut(arg, "=")
+		switch {
+		case arg == "--reset":
+			result = []string{"--reset"}
+		case name == "--cpus" || name == "--memory" || name == "--ram":
+			return nil, fmt.Errorf("%s is not supported: Cage sets CPUs and memory from the resource settings in the Cage app", name)
+		default:
+			return nil, fmt.Errorf("unsupported start argument: %s", arg)
+		}
+	}
+	return append(result, "run", "true"), nil
 }
 
 // split reads agent-vm's options before a command's own words: from the

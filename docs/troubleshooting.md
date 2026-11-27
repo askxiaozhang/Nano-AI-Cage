@@ -14,11 +14,11 @@
 
 **GitHub 显示 404，或看不到安装包。** 仓库与公开发布的附件无需仓库授权。从[项目主页](https://claude-cage.com/#download)点击“下载应用”并选择平台，检查网络与链接是否完整。macOS 使用 `.dmg`，Windows 使用 `.exe` 安装器，Debian/Ubuntu Linux 使用 `.deb`。Release 中的源码压缩包用于开发，不能当作安装包使用；尚无公开安装包的平台会提供安装与构建说明。
 
-**Mac 提示应用损坏、无法验证或不支持。** 确认使用 Apple Silicon、macOS 14+，重新下载对应 Release 的完整安装包，并核对该 Release 的签名、公证说明和校验文件。保留系统提示的原文反馈问题；不要通过关闭 Gatekeeper 或删除隔离属性来掩盖发行问题。
+**Mac 提示应用损坏、无法验证或不支持。** 确认使用 macOS 14+，且下载的 DMG 与芯片一致（Apple Silicon 为 `macos-arm64`，Intel 为 `macos-amd64`），重新下载对应 Release 的完整安装包，并核对该 Release 的签名、公证说明和校验文件。保留系统提示的原文反馈问题；不要通过关闭 Gatekeeper 或删除隔离属性来掩盖发行问题。
 
 **Windows 显示未知发布者，或 Linux 无法安装。** Windows 未签名预览包的身份限制与实测范围见 [Windows 指南](windows.md)和对应发行说明；不要把它当作已签名版本。Linux 先确认使用 Debian 12 / Ubuntu 22.04 / 24.04 x86_64，通过 APT 安装 `.deb` 的依赖，并按 [Linux 指南](linux.md)检查 KVM 权限。
 
-**首页提示 macOS / Windows 客机已不再支持。** 当前版本只使用 Debian 13 环境。旧系统的磁盘和文件原样留在电脑上，Cage 不会删除；处理方式见[早期版本创建的其他系统](guide/guest-systems.md#早期版本创建的其他系统)。
+**首页提示 macOS / Windows / Ubuntu 客机已不再支持。** 当前版本只使用 Debian 13 环境。旧系统的磁盘和文件原样留在电脑上，Cage 不会删除。旧 Ubuntu 环境会挡住新环境的创建，需在首页点击“保留旧 Ubuntu 环境并新建 Debian”；处理方式见[早期版本创建的其他系统](guide/guest-systems.md#早期版本创建的其他系统)。
 
 **提示缺少代理核心。** 完整应用随附 Mihomo。重新安装对应平台的完整安装包，不要只拷贝其中的命令行文件。请使用对应平台的完整安装包。
 
@@ -72,13 +72,13 @@ Cage 需要先选择自己的代理。首次首页点击“配置网络与代理
 
 ## 订阅导入失败，或导入后没有节点
 
-支持含 `proxies` 或 `payload` 的 Clash/Mihomo YAML。Base64 列表、节点分享链接、仅含远程 provider 的配置不属于当前支持格式。检查是否拿到了节点订阅地址；不要把网站登录页地址当作订阅地址，也不要将私人订阅提交给在线转换网站或 Issue。
+支持含 `proxies` 或 `payload` 的 Clash/Mihomo YAML，也可粘贴受支持的明文节点分享链接，每行一个。如果服务商返回整份 Base64 编码列表，或配置仅引用远程 provider，请获取包含具体节点的配置。遇到本机代理端口提示时，请按[代理链迁移步骤](guide/network.md#把原客户端的代理链迁到-cage)操作。检查是否拿到了节点订阅地址；不要把网站登录页地址当作订阅地址，也不要将私人订阅提交给在线转换网站或 Issue。
 
 代理链需要引用同一来源内的具体节点，选择分组和 DIRECT 链路会被拒绝。具体协议字段还需通过随附 Mihomo 核心的校验，错误详情可用于确认缺失字段。
 
 ## 启动停留在准备环境
 
-第一次会下载 Linux 镜像并安装开发工具，速度取决于网络。点击“操作详情”查看当前阶段和错误；如果仍在下载或安装，保留窗口等待。失败后先检查代理节点和磁盘空间，再重新启动。
+第一次会下载 Linux 镜像并安装开发工具，速度取决于网络。点击“操作详情”查看当前阶段和错误；如果仍在下载或安装，保留窗口等待。失败后先检查代理节点和磁盘空间，再重新启动。如果错误显示“无法连接宿主机代理”，说明镜像下载使用的宿主机代理端口没有响应：镜像由宿主机经系统代理或 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY` 环境变量下载，不经过 Cage 节点，换节点无效。请确认这些设置指向正在运行的代理端口；macOS 上由 `launchctl setenv` 留下的旧值会作用于所有图形界面应用，可用 `launchctl getenv HTTPS_PROXY` 检查，用 `launchctl unsetenv` 清除后重新打开 Cage。如果错误显示“无法解析宿主机代理设置”，说明宿主机的系统代理或自动代理（PAC）设置无法读取或解析；Cage 不会改为直连，请检查系统代理与 PAC 设置以及提供它们的代理软件，或设置 `HTTPS_PROXY` 后继续安装。
 
 固定摘要的 Linux 镜像，以及 code-server、mise、Claude Code 原生包，会保留未完成下载并有限重试。再次启动时会尝试续传；服务器不支持续传时重新下载该文件。完整校验通过后才使用文件。APT 使用自己的软件包缓存与下载重试机制。不要清空个人数据目录或重建账户来处理下载失败。
 
@@ -98,6 +98,30 @@ Debian 13 的 APT 3.0.3 在下载重试时可能积存大量 `Tried to start del
 
 正在启动或检查时可以停止环境。网络设置需要重启时，先保存文件；不要同时运行多个安装副本或手动修改运行中的私有配置。
 
+## 用户目录含空格时环境无法启动
+
+Cage 在配置目录旁建立内部传输目录（默认为 `%USERPROFILE%\.claude-cage-downloads`），并通过 Lima 共享进环境。Lima 无法共享路径中含空格的目录，因此 Windows 账户名含空格（例如 `C:\Users\Jae Young`）时，环境无法启动。启动时 Cage 会直接指出这个目录；较早的版本要先完成基础系统安装，最后才提示“退出码 1，未返回可识别的原因”，操作详情末尾是 `project path contains whitespace, which Lima cannot mount`。
+
+处理方法是把整个配置目录移到不含空格的路径，再让 Cage 使用新位置。账户、设置、代理和已下载的基础系统都会随目录一起移动，无需重新创建账户。
+
+1. 在 Cage 中停止环境，从系统托盘退出 Cage，并在任务管理器中确认没有 `cage.exe` 和 `mihomo.exe` 仍在运行。
+2. 在同一磁盘内移动配置目录。复制或跨磁盘移动会改变文件权限，Cage 会拒绝使用权限异常的私有文件。
+
+   ```powershell
+   New-Item -ItemType Directory C:\CageData
+   Move-Item -LiteralPath "$env:USERPROFILE\.claude-cage" -Destination C:\CageData\.claude-cage
+   ```
+
+3. 删除 `C:\CageData\.claude-cage\environment.json`。它记录了原来含空格的内部传输目录，删除后 Cage 会按新位置重新生成。若该文件中有 `identity_directory` 字段，说明环境曾在其他位置运行过，先保留文件并导出诊断包反馈。
+4. 为当前用户设置 `CLAUDE_CAGE_CONFIG`，然后注销并重新登录 Windows，让开始菜单和桌面快捷方式读取新设置：
+
+   ```powershell
+   [Environment]::SetEnvironmentVariable('CLAUDE_CAGE_CONFIG', 'C:\CageData\.claude-cage\config.json', 'User')
+   ```
+
+5. 打开 Cage，用原密码解锁后启动环境。已下载的基础系统会被复用，Cage 只需在新位置创建环境。
+
+原来的 `%USERPROFILE%\.claude-cage-downloads` 若为空可以删除。以后的启动、更新和维护都应继续使用同一个 `CLAUDE_CAGE_CONFIG`；要改回默认位置，先退出 Cage，把目录移回原处，再删除这个用户环境变量。
 ## 节点已经应用，但外网仍然离线
 
 “已应用”表示代理核心的节点选择成功，工作台的网络检查还需要通过。点击底部网络状态，查看失败或未知的关键项：
@@ -107,13 +131,14 @@ Debian 13 的 APT 3.0.3 在下载重试时可能积存大量 `Tried to start del
 | 出口 IP 或地区不符合规则 | 切换最终出口会自动使用该节点的绑定，首次使用时检测并绑定。同一节点的 IP 发生变化时，确认后在“IP 变化规则”中修改；重检保留原绑定。 |
 | 命中大陆网段或定位为中国大陆 | 切换到非大陆出口；静态 IP 和不限地区均不能绕过。若怀疑归属错误，保留检查报告及出口信息供核查。 |
 | 代理不可用、核心未就绪 | 在代理页重新应用节点，或到“诊断”查看核心状态并重启 Cage 核心。 |
+| TLS / gRPC 节点持续握手超时（核心日志报 `connect error: context deadline exceeded`） | Go 1.26 构建的内置核心默认发送较大的后量子 TLS ClientHello；未设置 `client-fingerprint` 的 VMess/VLESS/Trojan 等节点可尝试在节点 YAML 中添加 `client-fingerprint: safari` 或 `firefox` 后重新导入并应用，详见[TLS 节点无 client-fingerprint 时握手超时](guide/network.md#tls-节点无-client-fingerprint-时握手超时)。 |
 | 端口已占用 | 在代理“诊断”中为 Cage 选择未占用的独立端口。无需终止本机其他代理。修改端口需要重启环境。 |
 | 已测得出口 IP，但位置查询失败 | Cage 会在某家定位服务失败时尝试下一家；请重试或更换节点。所有模式都须确认非大陆出口；手动时区、语言、静态 IP 和不限地区均不能跳过国家或地区检查。 |
 | 代理基础设施 DNS 不可用 | 确认主机能访问 Cloudflare 或阿里 DoH；Cage 会并行尝试二者。业务 DNS 设置不改变节点域名的启动解析。 |
 | 已暂停或检查报告过期 | 确认配置后重新检查。关键项通过才会恢复外网。 |
 | 主机网络切换后暂时离线 | 等待 Cage 重新绑定当前物理网卡并完成检查；若曾手动暂停，仍需主动重检。 |
 
-位置查询通过所选代理，依次向 ipwho.is、IP.SB、ipwhois.app、GeoJS 和 ipapi.co 发送已经测得的出口 IP，取得有效位置后立即停止。每家最多等待 8 秒，五家串行查询最多约 40 秒，也受当前检查的剩余时间限制；所有服务都失败时不会改用直连。
+位置查询通过所选代理，依次向 ipwho.is、IP.SB、ipwhois.app、GeoJS 和 ipapi.co 发送已经测得的出口 IP，取得有效位置后立即停止。每家最多等待 8 秒，五家串行查询最多约 40 秒，也受当前检查的剩余时间限制；所有服务都失败时不会改用直连。若在“设置 → 网络与代理”中显式开启了“出口位置查询备用服务 ipinfo.io”（默认关闭），五家都失败后还会经所选代理向 ipinfo.io 发送同一出口 IP，最多再等 8 秒；它的结果只用于国家或地区判断，界面显示两位代码，州、省和城市留空，按州、省或城市限定的出口规则此时仍保持外网关闭。
 
 离线时可以继续使用终端、共享文件和 Linux 环境中的本地服务。绿色盾牌表示当前状态与检查通过，不能推导账户资格或平台风险。
 
@@ -131,7 +156,7 @@ Debian 13 的 APT 3.0.3 在下载重试时可能积存大量 `Tried to start del
 
 ## Desktop 的文字过大或画面比例不一致
 
-先将右上角“显示大小”设为 100%，窗口和侧栏变化时画面会自动适配。若需要更多内容空间，可选择 90% 或 75%。出现“画面尺寸未能同步”时点击“重试调整”；仍未恢复时保存工作、关闭 Claude Desktop 后重新打开，使当前环境的应用缩放参数生效。
+窗口和侧栏变化时画面会自动适配；文字或界面缩放可在 Claude Desktop 内按 `Ctrl`/`Cmd` + `+`、`-`、`0` 调整或重置。出现“画面尺寸未能同步”时点击“重试调整”；仍未恢复时保存工作、从左侧栏关闭 Claude Desktop 后重新打开，使当前环境的应用缩放参数生效。
 
 旧构建的尺寸控制脚本可能受到环境 zsh 中 mise 初始化的影响，持续返回尺寸调整失败。此时需要使用包含控制脚本修正的 Cage 构建。该修正兼容已有环境配置，在控制入口明确选择脚本解释器。
 
@@ -140,6 +165,8 @@ Desktop 中的 Google 登录和外部链接会在 Cage 浏览器中打开，界�
 ## Claude 登录或请求失败
 
 Cage 不自动读取主机上的 Claude 登录。请在 Cage 终端运行 `claude`，按提示在 Cage 浏览器中完成授权；需要手动打开时复制完整授权链接到 Cage 地址栏。
+
+网页授权受阻时，先记录是验证框没有加载、手动验证后反复回到验证框，还是返回 Claude 后出现账号或地区提示。公开反馈时遮盖完整 Cloudflare Ray ID。[按网页登录阶段排查](guide/troubleshooting.md#网页登录停在哪一步)
 
 确认工作台的关键检查通过，再核对账户本身的使用资格与 Claude 返回的错误。能打开登录页只证明页面可访问，完成授权和一次真实模型请求才算这条使用路径成功。反馈时保留错误类型，遮盖邮箱、授权链接、令牌和会话信息。
 
@@ -174,6 +201,8 @@ Cage 不自动读取主机上的 Claude 登录。请在 Cage 终端运行 `claud
 打开“设置 → 环境与恢复 → 日志与诊断”，点击“导出诊断包”，选择本机保存位置。macOS、Windows 和 Linux 使用相同入口；环境停止时也能导出本机日志。诊断包不会自动上传。
 
 日志写入前自动遮盖常见密码、令牌、认证头、网址、邮箱、IP 和本机路径；主机日志最多 40 MiB，环境内 Cage 服务日志预算 10 MiB，最多保留 14 天。诊断包包含脱敏日志、版本和收集状态，不收集终端内容、项目文件或完整配置。已有环境的日志配置随环境组件更新生效。
+
+回查某次断网时，请按故障时间定位事件，再核对最近安全检查的生成时间。[对照诊断包中的时间字段](guide/troubleshooting.md#导出诊断与反馈)
 
 若应用界面无法打开，可运行 `cage diagnostics --json /absolute/path/cage-diagnostics.zip`。macOS 应用内的命令位于 `Cage.app/Contents/Resources/cage`，Windows 位于安装目录的 `resources\cage.exe`，Linux 位于应用目录的 `cage`。控制服务无法连接时仍可导出本机日志；文件必须保存到本机的绝对路径。技术细节见[故障排查与诊断](guide/troubleshooting.md)。
 

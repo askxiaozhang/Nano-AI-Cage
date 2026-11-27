@@ -14,7 +14,7 @@ func TestSubcommandHelpDoesNotRunTheCommand(t *testing.T) {
 	previous := os.Args
 	t.Cleanup(func() { os.Args = previous })
 	for _, flag := range []string{"--help", "-h"} {
-		for _, command := range []string{"init", "setup", "up", "serve", "prepare-update", "version"} {
+		for _, command := range []string{"init", "setup", "start", "up", "login", "serve", "prepare-update", "version"} {
 			os.Args = []string{"cage", command, flag}
 			if code := run(); code != 0 {
 				t.Fatalf("%s %s returned %d", command, flag, code)
@@ -23,6 +23,25 @@ func TestSubcommandHelpDoesNotRunTheCommand(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Dir(config)); !os.IsNotExist(err) {
 		t.Fatalf("help created the profile: %v", err)
+	}
+}
+
+func TestStartHelpDocumentsReset(t *testing.T) {
+	for _, command := range []string{"up", "login"} {
+		text, ok := subcommandHelp([]string{command, "--help"})
+		if !ok {
+			t.Fatalf("no help for %s", command)
+		}
+		for _, want := range []string{"--reset", "disk", "lost"} {
+			if !strings.Contains(text, want) {
+				t.Errorf("%s help lacks %q: %s", command, want, text)
+			}
+		}
+		for _, unwanted := range []string{"--cpus", "--memory", "--ram", "--ssh-port"} {
+			if strings.Contains(text, unwanted) {
+				t.Errorf("%s help offers %q, which Cage does not apply: %s", command, unwanted, text)
+			}
+		}
 	}
 }
 

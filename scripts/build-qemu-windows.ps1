@@ -76,22 +76,49 @@ function Build-WindowsQemuRuntime {
         $shell = @('--noprofile', '--norc', (Join-Path $PSScriptRoot 'build-qemu-windows.sh'))
         try { Invoke-BuildTool (Join-Path $uclib 'pkg-config.exe') @('--print-errors', '--exists', 'glib-2.0', 'pixman-1', 'slirp') }
         catch { throw 'Missing QEMU libraries in MSYS2 UCRT64. Install glib2, pixman and libslirp from the packages listed in docs/windows.md#windows-源码构建.' }
-        Invoke-BuildTool $bash ($shell + @('preflight', $stage)) | Out-Host
+        # Capture the check so a failure can be explained; PowerShell 7.0 and 7.1
+        # turn redirected native stderr into terminating errors under Stop.
+        $preflightLog = Join-Path $stage 'compiler-preflight.log'
+        $preflightExit = & {
+            $ErrorActionPreference = 'Continue'
+            $PSNativeCommandUseErrorActionPreference = $false
+            & $bash @($shell + @('preflight', $stage)) 2>&1 | ForEach-Object { "$_" } | Out-File -LiteralPath $preflightLog -Encoding utf8 -ErrorAction Stop
+            $LASTEXITCODE
+        }
+        if ($preflightExit -ne 0) {
+            $systemDirectory = [Environment]::SystemDirectory
+            throw (Get-WindowsCompilerPreflightError -LogPath $preflightLog -ExitCode $preflightExit -MsysDirectory $MsysDirectory `
+                -SystemDirectory $systemDirectory -SystemZlib (Test-Path -LiteralPath (Join-Path $systemDirectory 'zlib1.dll') -PathType Leaf))
+        }
         $archive = Get-VerifiedGitArchive $dependencies.qemuSource $DependencyCache
         $keymapArchive = Get-VerifiedDependency $dependencies.qemuKeycodemap $DependencyCache
-        Invoke-BuildTool $bash ($shell + @('configure', $stage, $archive, $keymapArchive, $patchDirectory)) | Out-Host
+        # QEMU's mkvenv bootstraps pip, setuptools and wheel. Supply the pinned
+        # wheels so configure never needs PyPI.
+        $wheels = Join-Path $DependencyCache 'qemu-python-wheels'
+        foreach ($wheel in $dependencies.qemuPythonWheels) { [void](Get-VerifiedDependency $wheel $wheels) }
+        Invoke-BuildTool $bash ($shell + @('configure', $stage, $archive, $keymapArchive, $patchDirectory, $wheels)) | Out-Host
         # Start native Ninja directly. Its child MSYS tools can initialize their
         # own runtime rather than inheriting Bash's MSYS process namespace.
         $env:TEMP = $env:TMP = $env:TMPDIR = Join-Path $stage 'tmp'
         Invoke-BuildTool (Join-Path $uclib 'ninja.exe') @('-C', (Join-Path $stage 'build'), '-j', '6', 'qemu-system-x86_64.exe', 'qemu-img.exe') | Out-Host
-        Invoke-BuildTool $bash ($shell + @('package', $stage, $built, ([Environment]::SystemDirectory))) | Out-Host
-        Assert-WindowsQemuRuntime $built
-        $files = @(Get-ChildItem -LiteralPath $built -File | Sort-Object Name | ForEach-Object {
+        # MSYS2 binutils cannot write to non-ASCII paths, and the dependency
+        # cache may sit in a Unicode checkout. Package inside the short ASCII
+        # stage, then copy next to the output and verify every hash there, so
+        # the final publish stays a same-volume rename.
+        $packaged = Join-Path $stage 'runtime'
+        Invoke-BuildTool $bash ($shell + @('package', $stage, $packaged, ([Environment]::SystemDirectory))) | Out-Host
+        Assert-WindowsQemuRuntime $packaged
+        $files = @(Get-ChildItem -LiteralPath $packaged -File | Sort-Object Name | ForEach-Object {
             [ordered]@{ name = $_.Name; sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
         })
         [ordered]@{ fingerprint = $fingerprint; source = $dependencies.qemuSource.commit; files = $files } |
-            ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $built 'cage-build.json')
-        if (-not (Test-WindowsQemuBuildManifest $built $fingerprint)) { throw 'The staged QEMU runtime fails manifest verification.' }
+            ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $packaged 'cage-build.json')
+        if (-not (Test-WindowsQemuBuildManifest $packaged $fingerprint)) { throw 'The staged QEMU runtime fails manifest verification.' }
+        [void][IO.Directory]::CreateDirectory($built)
+        foreach ($file in (Get-ChildItem -LiteralPath $packaged -File -Force)) {
+            Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $built $file.Name)
+        }
+        if (-not (Test-WindowsQemuBuildManifest $built $fingerprint)) { throw 'The copied QEMU runtime fails manifest verification.' }
         Publish-WindowsQemuRuntime -StagedDirectory $built -Directory $OutputDirectory -ManagedCache:$managedOutput
         $complete = $true
     } finally {

@@ -15,17 +15,30 @@ export class BootstrapError extends Error {
 }
 const fail = (code, message, next = 'plan') => { throw new BootstrapError(code, message, next); };
 
+// Global fetch ignores HTTP(S)_PROXY unless Node starts with --use-env-proxy or
+// NODE_USE_ENV_PROXY=1 (Node 22.21+/24.5+). Name the variables, never their values,
+// because proxy URLs can carry credentials.
+export function envProxyHint(env = process.env, runtime = { version: process.version, execArgv: process.execArgv, flagSupported: process.allowedNodeEnvironmentFlags.has('--use-env-proxy') }) {
+  if (!['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy'].some(name => env[name])) return '';
+  const enabled = env.NODE_USE_ENV_PROXY === '1' || runtime.execArgv.includes('--use-env-proxy') || /(?:^|\s)--use-env-proxy(?:\s|$)/.test(env.NODE_OPTIONS ?? '');
+  if (enabled) return ' HTTPS_PROXY/HTTP_PROXY is set and Node uses it; check that this proxy is reachable and allows GitHub release downloads.';
+  if (runtime.flagSupported) return ' HTTPS_PROXY/HTTP_PROXY is set, but Node fetch ignores it unless enabled: rerun as node --use-env-proxy agent-bootstrap.mjs with the same arguments, or set NODE_USE_ENV_PROXY=1.';
+  return ` HTTPS_PROXY/HTTP_PROXY is set, but Node ${runtime.version} fetch cannot use environment proxies. Use Node 22.21+ or 24.5+ with node --use-env-proxy agent-bootstrap.mjs, or download the plan url with a proxy-aware tool such as curl and verify the plan sha256 before installing.`;
+}
+const networkFail = (code, message) => fail(code, `${message}${envProxyHint()}`, 'check_host_network');
+const waitTimeout = 120000;
+
 export function parseArgs(args) {
   const options = { action: 'plan', platform: `${process.platform}-${process.arch === 'x64' ? 'amd64' : process.arch}`, version: '', destination: '', allowUnsigned: false };
   if (args[0] && !args[0].startsWith('--')) options.action = args.shift();
   for (let i = 0; i < args.length; i++) {
     const flag = args[i];
     if (flag === '--allow-unsigned') { options.allowUnsigned = true; continue; }
-    if (!['--platform', '--version', '--destination'].includes(flag) || !args[i + 1] || args[i + 1].startsWith('--')) fail('invalid_input', 'Usage: agent-bootstrap.mjs plan|download [--version TAG] [--platform darwin-arm64|win32-amd64|linux-amd64] [--destination ABSOLUTE_DIRECTORY] [--allow-unsigned]');
+    if (!['--platform', '--version', '--destination'].includes(flag) || !args[i + 1] || args[i + 1].startsWith('--')) fail('invalid_input', 'Usage: agent-bootstrap.mjs plan|download [--version TAG] [--platform darwin-arm64|darwin-amd64|win32-amd64|linux-amd64] [--destination ABSOLUTE_DIRECTORY] [--allow-unsigned]');
     options[flag.slice(2)] = args[++i];
   }
   if (!['plan', 'download'].includes(options.action)) fail('invalid_input', 'Action must be plan or download.');
-  if (!['darwin-arm64', 'win32-amd64', 'linux-amd64'].includes(options.platform)) fail('unsupported_platform', 'No desktop package is selected for this platform. Read the platform guide.');
+  if (!['darwin-arm64', 'darwin-amd64', 'win32-amd64', 'linux-amd64'].includes(options.platform)) fail('unsupported_platform', 'No desktop package is selected for this platform. Read the platform guide.');
   if (options.version && !/^v?\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$/.test(options.version)) fail('invalid_input', 'Use an explicit release tag such as v0.1.6-alpha-preview.');
   if (options.version && !options.version.startsWith('v')) options.version = `v${options.version}`;
   if (options.action === 'download' && !isAbsolute(options.destination)) fail('invalid_input', 'download requires --destination with an absolute directory path.');
@@ -33,15 +46,15 @@ export function parseArgs(args) {
 }
 
 // Validate HTTPS at every redirect; do not use browser credentials or tokens.
-export async function httpsResponse(url, fetchImpl = fetch, method = 'GET') {
+export async function httpsResponse(url, fetchImpl = fetch, method = 'GET', signal) {
   for (let redirects = 0; redirects <= 5; redirects++) {
     const parsed = new URL(url);
     if (parsed.protocol !== 'https:' || parsed.username || parsed.password) fail('unsafe_download', 'Only public HTTPS downloads without embedded credentials are supported.');
     let response;
     try {
-      response = await fetchImpl(parsed, { method, redirect: 'manual', signal: AbortSignal.timeout(120000), headers: { 'User-Agent': 'Cage-Agent-Bootstrap/1', Accept: 'application/json, application/octet-stream' } });
+      response = await fetchImpl(parsed, { method, redirect: 'manual', signal: signal ?? AbortSignal.timeout(waitTimeout), headers: { 'User-Agent': 'Cage-Agent-Bootstrap/1', Accept: 'application/json, application/octet-stream' } });
     } catch {
-      fail('download_connection_failed', 'Could not connect to the public release service. Check host connectivity and user-configured proxy settings; Node 24 can use --use-env-proxy.', 'check_host_network');
+      networkFail('download_connection_failed', 'Could not connect to the public release service. Check host connectivity and user-configured proxy settings.');
     }
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get('location');
@@ -67,7 +80,7 @@ export function selectAsset(release, options) {
   const tag = release.tag_name;
   if (!/^v\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$/.test(tag) || release.draft || (options.version && tag !== options.version)) fail('invalid_release', 'Release tag does not match the requested published release.');
   const version = tag.slice(1);
-  const suffix = { 'darwin-arm64': 'macos-arm64.dmg', 'linux-amd64': 'linux-amd64.deb', 'win32-amd64': 'windows-amd64-setup.exe' }[options.platform];
+  const suffix = { 'darwin-arm64': 'macos-arm64.dmg', 'darwin-amd64': 'macos-amd64.dmg', 'linux-amd64': 'linux-amd64.deb', 'win32-amd64': 'windows-amd64-setup.exe' }[options.platform];
   let asset = release.assets?.find(a => a.name === `Cage-${version}-${suffix}`);
   let unsigned = false;
   if (!asset && options.platform === 'win32-amd64') {
@@ -90,7 +103,7 @@ export function checksumFor(manifest, name) {
   return matches[0][1].toLowerCase();
 }
 
-const suffixes = { 'darwin-arm64': 'macos-arm64.dmg', 'linux-amd64': 'linux-amd64.deb', 'win32-amd64': 'windows-amd64-setup.exe' };
+const suffixes = { 'darwin-arm64': 'macos-arm64.dmg', 'darwin-amd64': 'macos-amd64.dmg', 'linux-amd64': 'linux-amd64.deb', 'win32-amd64': 'windows-amd64-setup.exe' };
 const downloadURL = (tag, name) => `https://github.com/${repo}/releases/download/${tag}/${name}`;
 
 // A published release's static files carry everything a plan needs: the
@@ -163,29 +176,43 @@ export async function makePlan(options, fetchImpl = fetch) {
       selected = await staticSelection(tag, options, fetchImpl);
     }
   }
-  const cli = { 'darwin-arm64': '/Applications/Cage.app/Contents/Resources/cage', 'linux-amd64': '/usr/bin/claude-cage', 'win32-amd64': '<install_directory>\\resources\\cage.exe' }[options.platform];
+  const cli = { 'darwin-arm64': '/Applications/Cage.app/Contents/Resources/cage', 'darwin-amd64': '/Applications/Cage.app/Contents/Resources/cage', 'linux-amd64': '/usr/bin/claude-cage', 'win32-amd64': '<install_directory>\\resources\\cage.exe' }[options.platform];
   const installation = {
     'darwin-arm64': { guide: 'https://claude-cage.com/docs/installation/', steps: ['Check codesign and spctl on the mounted Cage.app. Preserve macOS Gatekeeper checks.', 'For an update, save work and stop Cage through its existing UI before replacing app files.', 'Mount the verified DMG read-only with hdiutil attach -readonly -nobrowse. Copy Cage.app to /Applications using the existing installation guide; eject the mounted volume.', 'Run the installed CLI agent capabilities. If agent is unknown, this release predates Agent support; use its documented UI or an authorized newer build.'] },
     'linux-amd64': { guide: 'https://claude-cage.com/docs/installation/', argv: ['sudo', 'apt-get', 'install', '--', '<downloaded_absolute_path>'], steps: ['Save work and stop Cage before an update. Run the package manager in the user-approved privilege context.', 'Run /usr/bin/claude-cage agent capabilities. The name cage belongs to a different Linux program.'] },
     'win32-amd64': { guide: 'https://claude-cage.com/docs/installation/', argv: ['<downloaded_absolute_path>', '/S'], steps: ['Save work and stop Cage before an update. Inspect Get-AuthenticodeSignature on signed packages.', 'Run the installer in the user-approved context; system security prompts require the user.', 'The CLI is resources\\cage.exe in the install directory: D:\\Cage when a local fixed D: drive exists, otherwise $env:LOCALAPPDATA\\Programs\\Cage. Read InstallLocation under HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ClaudeCage for the actual one; then run agent capabilities.'] },
-  }[options.platform];
+  }[options.platform === 'darwin-amd64' ? 'darwin-arm64' : options.platform]; // Both Mac packages install the same way.
   return { protocol, status: 'planned', release: selected.tag, release_url: `https://github.com/${repo}/releases/tag/${selected.tag}`, platform: options.platform, asset: selected.asset, url: selected.url, size: selected.size, sha256: selected.sha256, unsigned: selected.unsigned, cli, installation, data_policy: 'Preserve ~/.claude-cage, user projects and persistent VM disks. Downloads and application files are separate from profile data.' };
 }
 
-export async function downloadPlan(plan, destination, fetchImpl = fetch) {
+export async function downloadPlan(plan, destination, fetchImpl = fetch, idleTimeout = waitTimeout) {
   if (!isAbsolute(destination)) fail('invalid_input', 'Destination must be an absolute directory.');
   await mkdir(destination, { recursive: true });
   const stage = await mkdtemp(join(destination, '.cage-download-'));
+  // Bound each wait instead of the whole transfer: a large package on a slow link
+  // can take longer than one timeout while still making progress.
+  const controller = new AbortController(); let timer;
+  const touch = () => { clearTimeout(timer); timer = setTimeout(() => controller.abort(new DOMException('Download stalled.', 'TimeoutError')), idleTimeout); };
   try {
     const temp = join(stage, plan.asset);
-    const response = await httpsResponse(plan.url, fetchImpl);
+    touch();
+    const response = await httpsResponse(plan.url, fetchImpl, 'GET', controller.signal);
+    touch();
     const hash = createHash('sha256'); let size = 0;
     const verify = new Transform({ transform(chunk, encoding, callback) {
+      touch();
       size += chunk.length;
       if (size > plan.size) { callback(new BootstrapError('size_mismatch', 'Package exceeds the release size.', 'plan')); return; }
       hash.update(chunk); callback(null, chunk);
     } });
-    await pipeline(Readable.fromWeb(response.body), verify, createWriteStream(temp, { flags: 'wx', mode: 0o600 }));
+    try {
+      await pipeline(Readable.fromWeb(response.body), verify, createWriteStream(temp, { flags: 'wx', mode: 0o600 }));
+    } catch (error) {
+      // File system errors carry a syscall and keep their existing handling.
+      if (error instanceof BootstrapError || typeof error?.syscall === 'string') throw error;
+      if (error?.name === 'TimeoutError' || error?.name === 'AbortError') networkFail('download_timeout', `The package download received no data for ${Math.round(idleTimeout / 1000)} seconds; the partial file was discarded. Check the host download network, then retry download.`);
+      networkFail('download_interrupted', 'The package download was interrupted; the partial file was discarded. Check the host download network, then retry download.');
+    }
     if (size !== plan.size || hash.digest('hex') !== plan.sha256) fail('checksum_mismatch', 'Package size or SHA-256 does not match the selected release. The staged download was discarded.');
     await chmod(temp, 0o600);
     const path = join(destination, plan.asset);
@@ -194,7 +221,7 @@ export async function downloadPlan(plan, destination, fetchImpl = fetch) {
     const installation = { ...plan.installation };
     if (installation.argv) installation.argv = installation.argv.map(arg => arg === '<downloaded_absolute_path>' ? path : arg);
     return { ...plan, status: 'downloaded', path, installation };
-  } finally { await rm(stage, { recursive: true, force: true }); }
+  } finally { clearTimeout(timer); await rm(stage, { recursive: true, force: true }); }
 }
 
 export async function main(args = process.argv.slice(2)) {

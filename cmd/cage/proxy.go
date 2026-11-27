@@ -3,11 +3,31 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"github.com/sylvinus/agent-vm/internal/cage"
 	"github.com/sylvinus/agent-vm/internal/managedproxy"
 	"os"
 	"path/filepath"
 )
+
+var (
+	checkProxyInterfaceBinding = managedproxy.CheckInterfaceBinding
+	probeProxyExitIP           = cage.ProbeExitIP
+)
+
+func checkProxyTransport(ctx context.Context, profile string, cfg cage.Config) error {
+	configPath := filepath.Join(managedproxy.Dir(profile), "config.yaml")
+	if err := checkProxyInterfaceBinding(ctx, configPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		var stale *managedproxy.StaleInterfaceError
+		if errors.As(err, &stale) {
+			return fmt.Errorf("%w（可运行 cage proxy-start 重新绑定）", err)
+		}
+		return err
+	}
+	_, err := probeProxyExitIP(ctx, cfg)
+	return err
+}
 
 func proxyCommand(command, profile string, cfg cage.Config) error {
 	if command == "proxy-stop" {
@@ -17,6 +37,14 @@ func proxyCommand(command, profile string, cfg cage.Config) error {
 		return managedproxy.Stop(profile)
 	}
 	p, err := managedproxy.Applied(profile, cfg.ProxyURL, cfg.ProxyRevision)
+	if errors.Is(err, managedproxy.ErrLocalProxyNode) {
+		closeErr := closeManagedGates(profile)
+		_, runtimeErr := managedproxy.BoundInterface(filepath.Join(managedproxy.Dir(profile), "config.yaml"))
+		if errors.Is(runtimeErr, managedproxy.ErrLocalProxyNode) {
+			return errors.Join(err, closeErr, managedproxy.Stop(profile))
+		}
+		return errors.Join(err, closeErr)
+	}
 	if err != nil {
 		return err
 	}
@@ -25,14 +53,14 @@ func proxyCommand(command, profile string, cfg cage.Config) error {
 		_ = closeManagedGates(profile)
 		return err
 	}
-	bound, _ := managedproxy.BoundInterface(filepath.Join(managedproxy.Dir(profile), "config.yaml"))
-	if bound == name && managedproxy.Running(context.Background(), profile, p) {
+	if managedproxy.BindingMatches(filepath.Join(managedproxy.Dir(profile), "config.yaml"), name) && managedproxy.Running(context.Background(), profile, p) {
 		return nil
 	}
 	if err = closeManagedGates(profile); err != nil {
 		return err
 	}
 	p.Revision = managedproxy.Token()
+	p.GuestDNS, p.BootstrapDNS = cfg.DNSEndpoints(), cfg.BootstrapEndpoints()
 	cfg.ProxyRevision = p.Revision
 	if err = p.Save(profile); err != nil {
 		return err

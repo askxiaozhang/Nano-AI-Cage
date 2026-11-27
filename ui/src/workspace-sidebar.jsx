@@ -2,41 +2,216 @@ import { DesktopList } from "./account-desktops";
 import { AIDesktopSidebarList } from "./ai-desktops";
 import { HostPluginsNav, HostPluginsSidebar, PluginPagesNav } from "./host-plugins";
 import { shortcut } from "./platform.mjs";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   CircleAlert,
-  ExternalLink,
+  FileCode2,
   Folder,
   FolderOpen,
   Globe2,
-  Home,
   Monitor,
+  MoreHorizontal,
   Network,
   PanelLeftClose,
+  Pencil,
+  PencilLine,
+  Pin,
+  PinOff,
   Plus,
+  Power,
   RefreshCw,
   Settings,
   Server,
   SquareTerminal,
+  Trash2,
   UsersRound,
 } from "lucide-react";
 import { EnvironmentShield } from "./environment-shield";
 import logo from "./logo.png";
 import claudeLogo from "./claude-logo.svg";
-import { dropAfter, moveItem, projectName } from "./workspace-state.mjs";
+import { dropAfter, isClientProjectPath, moveItem, orderedProjects as sortProjects, projectName } from "./workspace-state.mjs";
 import { WorkspaceTabs } from "./workspace-tabs";
-import { projectSessionRows, sessionKey } from "./session-order.mjs";
+import { projectSessionRows, sessionKey, unassignedTerminalTabs } from "./session-order.mjs";
 import { AccountMenu } from "./account";
 import { useSSHNavigation } from "./remote-hosts";
 import { useTranslation } from "./interface-language.mjs";
 
 const SESSION_PREVIEW_LIMIT = 5;
 
+function ProjectActionMenu({
+  menu,
+  project,
+  pinned,
+  clientShare,
+  ready,
+  busy,
+  onClose,
+  onEditor,
+  onPin,
+  onRename,
+  onEdit,
+  onRemove,
+}) {
+  const tr = useTranslation();
+  const node = useRef(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  const [position, setPosition] = useState(() => ({
+    left: menu.point?.x ?? 8,
+    top: menu.point?.y ?? 8,
+    ready: false,
+  }));
+
+  useLayoutEffect(() => {
+    const element = node.current;
+    const anchor = menu.anchor;
+    if (!element || !anchor?.isConnected) {
+      closeRef.current();
+      return;
+    }
+    const rect = element.getBoundingClientRect();
+    const width = rect.width || 184;
+    const height = rect.height || 210;
+    const clamp = (value, min, max) => Math.max(min, Math.min(value, Math.max(min, max)));
+    let left;
+    let top;
+    if (menu.point) {
+      left = clamp(menu.point.x, 8, window.innerWidth - width - 8);
+      top = clamp(menu.point.y, 8, window.innerHeight - height - 8);
+    } else {
+      const box = anchor.getBoundingClientRect();
+      left = clamp(box.right - width, 8, window.innerWidth - width - 8);
+      top = box.bottom + 4 + height <= window.innerHeight - 8
+        ? box.bottom + 4
+        : Math.max(8, box.top - height - 4);
+    }
+    setPosition({ left, top, ready: true });
+    const dismiss = (restoreFocus = false) => {
+      if (restoreFocus && anchor.isConnected) anchor.focus();
+      closeRef.current();
+    };
+    const outside = (event) => {
+      if (!element.contains(event.target) && !anchor.contains(event.target)) dismiss();
+    };
+    const keydown = (event) => {
+      if (event.defaultPrevented) return;
+      if (event.key === "Escape" || event.key === "Tab") {
+        if (event.key === "Escape") event.preventDefault();
+        event.stopPropagation();
+        dismiss(event.key === "Escape");
+      } else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+        event.preventDefault();
+        const items = [...element.querySelectorAll("button:not(:disabled)")];
+        if (!items.length) return;
+        const index = items.indexOf(document.activeElement);
+        const next = event.key === "Home" ? 0
+          : event.key === "End" ? items.length - 1
+          : event.key === "ArrowUp" && index < 0 ? items.length - 1
+          : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+        items[next]?.focus();
+      }
+    };
+    const closeCommand = () => dismiss(true);
+    const onScroll = (event) => {
+      if (!element.contains(event.target)) dismiss();
+    };
+    document.addEventListener("click", outside, true);
+    document.addEventListener("keydown", keydown);
+    document.addEventListener("scroll", onScroll, true);
+    document.addEventListener("cage-close-modal", closeCommand);
+    window.addEventListener("resize", closeCommand);
+    return () => {
+      document.removeEventListener("click", outside, true);
+      document.removeEventListener("keydown", keydown);
+      document.removeEventListener("scroll", onScroll, true);
+      document.removeEventListener("cage-close-modal", closeCommand);
+      window.removeEventListener("resize", closeCommand);
+    };
+  }, [menu]);
+
+  // A hidden menu cannot take focus, so wait until the position is applied.
+  useEffect(() => {
+    if (position.ready) node.current?.querySelector("button:not(:disabled)")?.focus();
+  }, [position.ready, menu]);
+
+  const act = (handler) => {
+    onClose();
+    handler?.();
+  };
+
+  return createPortal(
+    <div
+      ref={node}
+      id="project-action-menu"
+      className="menu project-action-menu"
+      role="menu"
+      aria-label={tr("{0} 的操作", project)}
+      style={{
+        left: position.left,
+        top: position.top,
+        visibility: position.ready ? "visible" : "hidden",
+      }}
+    >
+      <button
+        type="button"
+        role="menuitem"
+        title={tr("在 code-server 中打开项目目录")}
+        disabled={!ready || busy}
+        onClick={() => act(onEditor)}
+      >
+        <FileCode2 size={15} aria-hidden="true" />
+        {tr("打开文件")}
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        disabled={busy || !onPin}
+        onClick={() => act(onPin)}
+      >
+        {pinned ? <PinOff size={15} aria-hidden="true" /> : <Pin size={15} aria-hidden="true" />}
+        {pinned ? tr("取消置顶") : tr("置顶")}
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        disabled={busy || clientShare || !onRename}
+        onClick={() => act(onRename)}
+      >
+        <Pencil size={15} aria-hidden="true" />
+        {tr("重命名")}
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        disabled={busy || !ready || clientShare || !onEdit}
+        onClick={() => act(onEdit)}
+      >
+        <PencilLine size={15} aria-hidden="true" />
+        {tr("编辑项目")}
+      </button>
+      <div className="menu-separator" role="separator" />
+      <button
+        type="button"
+        role="menuitem"
+        className="menu-item-danger"
+        disabled={busy || clientShare || !onRemove}
+        onClick={() => act(onRemove)}
+      >
+        <Trash2 size={15} aria-hidden="true" />
+        {tr("移除项目")}
+      </button>
+    </div>,
+    document.body,
+  );
+}
+
 export function WorkspaceSidebar({
   workspace,
   projects,
   projectGroups = [],
   projectOrder = [],
+  pinnedProjects = [],
   tabs,
   sessions = [],
   sessionError,
@@ -47,6 +222,7 @@ export function WorkspaceSidebar({
   onSessionOpen,
   openingSession,
   sessionOpenError,
+  onSessionAccount,
   onSessionArchive,
   onSessionPin,
   onSessionRename,
@@ -62,6 +238,10 @@ export function WorkspaceSidebar({
   onOpenProject,
   onProjectSelect,
   onProjectReorder,
+  onProjectPin,
+  onProjectRename,
+  onProjectEdit,
+  onProjectRemove,
   onSelect,
   onClose,
   onRename,
@@ -84,7 +264,10 @@ export function WorkspaceSidebar({
   onStopGoogleSession,
   onClaudeWeb,
   onClaudeDesktop,
+  defaultDesktopRunning,
+  onDefaultDesktopStop,
   accountDesktops,
+  onDesktopRename,
   desktopOpen,
   aiDesktops,
   aiDesktopHubOpen,
@@ -104,22 +287,23 @@ export function WorkspaceSidebar({
   const ssh = useSSHNavigation();
   const [collapsed, setCollapsed] = useState({});
   const [allSessionsShown, setAllSessionsShown] = useState({});
+  const [projectMenu, setProjectMenu] = useState(null);
   const sessionBaseline = useRef(new Map());
   const scroll = useRef(null);
   const projectPointer = useRef(null);
   const suppressProjectClick = useRef(false);
   const [projectDrag, setProjectDrag] = useState(null);
-  const projectRanks = new Map(projectOrder.map((path, index) => [path, index]));
-  const projectRank = path => projectRanks.get(path) ?? projectRanks.size;
-  const orderedProjects = [...projects].sort((a, b) => projectRank(a) - projectRank(b));
+  const pinnedSet = new Set(pinnedProjects);
+  const orderedProjects = sortProjects(projects, projectOrder, pinnedProjects);
   const moveProject = (from, to, after) => {
+    if (pinnedSet.has(from) !== pinnedSet.has(to)) return;
     const order = moveItem(orderedProjects, from, to, after);
     if (order !== orderedProjects) onProjectReorder(order);
   };
   const projectDrop = (event, from) => {
     const section = document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-sidebar-project]");
     const to = section?.dataset.sidebarProject;
-    if (!to || to === from || !scroll.current?.contains(section)) return null;
+    if (!to || to === from || pinnedSet.has(from) !== pinnedSet.has(to) || !scroll.current?.contains(section)) return null;
     return { to, after: dropAfter(section.querySelector(".project-heading"), event.clientY) };
   };
   const endProjectDrag = (event, commit = false) => {
@@ -132,6 +316,12 @@ export function WorkspaceSidebar({
     const drop = commit && projectDrop(event, current.path);
     if (drop) moveProject(current.path, drop.to, drop.after);
   };
+  const openProjectMenu = (path, anchor, point = null) => {
+    setProjectMenu((current) => !point && current?.path === path ? null : { path, anchor, point });
+  };
+  useEffect(() => {
+    if (projectMenu && !projects.includes(projectMenu.path)) setProjectMenu(null);
+  }, [projectMenu, projects]);
   useEffect(() => {
     if (!projectDrag) return;
     const cancel = event => {
@@ -151,13 +341,22 @@ export function WorkspaceSidebar({
   }, [active, activeWorkspace]);
   if (ssh?.expanded) return null;
   const healthy = ready && network.mode === "open";
+  // Terminals whose project was removed still count toward the host limit and must stay closable.
+  const otherTerminals = projectSessionRows(unassignedTerminalTabs(tabs, projects, projectGroups), [], saved, undefined, sessionBaseline.current);
   const mainSidebar = (
     <aside className="workspace-sidebar" aria-label={tr("项目与终端")} inert={plugins?.open}>
       <div className="sidebar-top">
-        <span className="sidebar-brand">
+        <button
+          type="button"
+          className={`sidebar-brand ${home ? "selected" : ""}`}
+          onClick={onHome}
+          aria-label={tr("工作台")}
+          aria-current={home ? "page" : undefined}
+          title={tr("工作台")}
+        >
           <img className="brand-logo" src={logo} alt="" />
-          Cage
-        </span>
+          <span>Cage</span>
+        </button>
         <button
           className="icon-button"
           onClick={onCollapse}
@@ -168,13 +367,7 @@ export function WorkspaceSidebar({
         </button>
       </div>
       <nav className="sidebar-navigation" aria-label={tr("主导航")}>
-        <button
-          className={`sidebar-link ${home ? "selected" : ""}`}
-          onClick={onHome}
-        >
-          <Home size={17} />
-          {tr("工作台")}
-        </button>
+        {ssh && <button className="sidebar-link ssh-navigation" onClick={ssh.open} aria-label={tr("SSH 主机")}><Server size={17} />SSH</button>}
         <div className={`sidebar-browser-row ${!desktopOpen && !home && tabs.some((tab) => tab.id === active && tab.kind !== "terminal") ? "selected" : ""}`}>
           <button
             className="sidebar-link"
@@ -196,11 +389,43 @@ export function WorkspaceSidebar({
             <img src={claudeLogo} width="18" height="18" alt="" />
           </button>
         </div>
-        <button className={`sidebar-link ${tailscaleOpen ? "selected" : ""}`} aria-current={tailscaleOpen ? "page" : undefined} onClick={onTailscale} aria-label={tr("打开 Tailscale")}><Network size={17} />Tailscale</button>
-        {plugins?.pages?.length > 0 && <PluginPagesNav pages={plugins.pages} selected={plugins.pageOpen} onOpen={plugins.onView} />}
-        {plugins && <HostPluginsNav open={plugins.open} onOpen={plugins.onOpen} />}
-        {ssh && <button className="sidebar-link ssh-navigation" onClick={ssh.open} aria-label={tr("SSH 主机")}><Server size={17} />SSH</button>}
-        {accountDesktops ? <DesktopList model={accountDesktops} disabled={!running || busy} selected={desktopOpen} onDefault={onClaudeDesktop}/> : <button className={`sidebar-link ${desktopOpen?"selected":""}`} onClick={onClaudeDesktop} disabled={!running||busy}><Monitor size={17}/>Claude Desktop</button>}
+        {accountDesktops ? (
+          <DesktopList
+            model={accountDesktops}
+            disabled={!running || busy}
+            selected={desktopOpen}
+            defaultRunning={defaultDesktopRunning}
+            onDefault={onClaudeDesktop}
+            onDefaultStop={onDefaultDesktopStop}
+            onRename={onDesktopRename}
+          />
+        ) : (
+          <div className={`account-desktop-row ${desktopOpen ? "active" : ""}`}>
+            <button
+              className="sidebar-link"
+              onClick={onClaudeDesktop}
+              disabled={!running || busy}
+            >
+              <Monitor size={17} />
+              Claude Desktop
+              {defaultDesktopRunning ? <span className="account-desktop-status" aria-hidden="true">●</span> : null}
+            </button>
+            {defaultDesktopRunning && onDefaultDesktopStop && (
+              <div className="terminal-row-actions" role="group" aria-label={tr("{0} 的操作", "Claude Desktop")}>
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={tr("关闭应用")}
+                  title={tr("关闭应用")}
+                  disabled={!running || busy}
+                  onClick={(event) => onDefaultDesktopStop(null, event.currentTarget)}
+                >
+                  <Power size={14} />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
         {aiDesktops && (
           <AIDesktopSidebarList
             model={aiDesktops}
@@ -225,6 +450,14 @@ export function WorkspaceSidebar({
           aria-current={googleAccountsOpen ? "page" : undefined}>
           <UsersRound size={17} />{tr("Google 账号管理")}
         </button>
+        {(plugins || onTailscale) && (
+          <>
+            <div className="sidebar-nav-divider" aria-hidden="true" />
+            {plugins && <HostPluginsNav open={plugins.open} onOpen={plugins.onOpen} />}
+            {onTailscale && <button className={`sidebar-link ${tailscaleOpen ? "selected" : ""}`} aria-current={tailscaleOpen ? "page" : undefined} onClick={onTailscale} aria-label={tr("打开 Tailscale")}><Network size={17} />Tailscale</button>}
+            {plugins?.pages?.length > 0 && <PluginPagesNav pages={plugins.pages} selected={plugins.pageOpen} floatingOpen={plugins.floatingOpen} onOpen={plugins.onView} />}
+          </>
+        )}
       </nav>
       <div className="sidebar-scroll" ref={scroll}>
         <div className="sidebar-section-heading">
@@ -275,6 +508,7 @@ export function WorkspaceSidebar({
           const group = projectGroups.find(group => group.workspace === path);
           const folders = group?.folders || [path];
           const project = projectName(path, projectGroups);
+          const pinned = pinnedSet.has(path);
           const rows = projectSessionRows(tabs.filter(tab => tab.kind === "terminal" && folders.includes(tab.workspace)),
             sessions.filter(session => folders.includes(session.workspace)), saved, saved.sessionOrder?.[path], sessionBaseline.current);
           const rowMetadata = { ...saved };
@@ -288,6 +522,7 @@ export function WorkspaceSidebar({
               key={path}
               aria-label={tr("项目 {0}", (project))}
               data-sidebar-project={path}
+              data-project-pinned={pinned || undefined}
               data-drop-position={projectDrag?.drop?.to === path ? projectDrag.drop.after ? "after" : "before" : undefined}
               data-project-dragging={projectDrag?.from === path || undefined}
             >
@@ -299,6 +534,12 @@ export function WorkspaceSidebar({
                   title={folders.join("\n")}
                   aria-expanded={expanded}
                   aria-keyshortcuts={projects.length > 1 ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
+                  onContextMenu={event => {
+                    if (busy) return;
+                    event.preventDefault();
+                    const more = event.currentTarget.parentElement?.querySelector(".project-more-button") || event.currentTarget;
+                    openProjectMenu(path, more, { x: event.clientX, y: event.clientY });
+                  }}
                   onPointerDown={event => {
                     if (event.button !== 0 || !event.isPrimary) return;
                     suppressProjectClick.current = false;
@@ -318,11 +559,18 @@ export function WorkspaceSidebar({
                   onPointerCancel={endProjectDrag}
                   onLostPointerCapture={endProjectDrag}
                   onKeyDown={event => {
+                    if ((event.key === "F10" && event.shiftKey) || event.key === "ContextMenu") {
+                      if (busy) return;
+                      event.preventDefault();
+                      const more = event.currentTarget.parentElement?.querySelector(".project-more-button") || event.currentTarget;
+                      openProjectMenu(path, more);
+                      return;
+                    }
                     if (!event.altKey || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
                     event.preventDefault();
                     const after = event.key === "ArrowDown";
                     const target = orderedProjects[index + (after ? 1 : -1)];
-                    if (target) {
+                    if (target && pinnedSet.has(target) === pinned) {
                       moveProject(path, target, after);
                       const button = event.currentTarget;
                       requestAnimationFrame(() => button.focus());
@@ -343,15 +591,7 @@ export function WorkspaceSidebar({
                 >
                   {expanded ? <FolderOpen size={16} /> : <Folder size={16} />}
                   <span>{project}</span>
-                </button>
-                <button
-                  className="icon-button"
-                  aria-label={tr("打开 {0} 的编辑器", (project))}
-                  title={tr("在 code-server 中打开项目目录")}
-                  disabled={!ready || busy}
-                  onClick={() => onEditor(path)}
-                >
-                  <ExternalLink size={15} />
+                  {pinned && <Pin size={11} className="project-pin" aria-label={tr("已置顶")} />}
                 </button>
                 <button
                   className="icon-button"
@@ -361,6 +601,7 @@ export function WorkspaceSidebar({
                   data-terminal-location={path}
                   disabled={!running || busy}
                   onClick={(event) => {
+                    setProjectMenu(null);
                     setCollapsed((previous) => ({
                       ...previous,
                       [path]: false,
@@ -369,6 +610,19 @@ export function WorkspaceSidebar({
                   }}
                 >
                   <SquareTerminal size={15} />
+                </button>
+                <button
+                  type="button"
+                  className="icon-button project-more-button"
+                  aria-label={tr("{0} 的操作", (project))}
+                  title={tr("{0} 的操作", (project))}
+                  aria-haspopup="menu"
+                  aria-expanded={projectMenu?.path === path}
+                  aria-controls={projectMenu?.path === path ? "project-action-menu" : undefined}
+                  disabled={busy}
+                  onClick={(event) => openProjectMenu(path, event.currentTarget)}
+                >
+                  <MoreHorizontal size={15} />
                 </button>
               </div>
               {terminalMenuAt(path)}
@@ -386,6 +640,7 @@ export function WorkspaceSidebar({
                       saved={rowMetadata}
                       openingSession={openingSession}
                       sessionOpenError={sessionOpenError}
+                      onSessionAccount={onSessionAccount}
                       active={home || desktopOpen ? "" : active}
                       label={tr("{0} 的终端", (project))}
                       busy={busy}
@@ -434,6 +689,24 @@ export function WorkspaceSidebar({
             </section>
           );
         })}
+        {!!otherTerminals.length && (
+          <section className="sidebar-project sidebar-other-terminals" aria-label={tr("其他终端")}>
+            <div className="sidebar-section-heading"><span>{tr("其他终端")}</span></div>
+            <WorkspaceTabs
+              tabs={otherTerminals}
+              saved={saved}
+              active={home || desktopOpen ? "" : active}
+              label={tr("其他终端")}
+              busy={busy}
+              ready={ready}
+              onSelect={onSelect}
+              onClose={onClose}
+              onRename={onRename}
+              onPin={onPin}
+              splitDrag={splitDrag}
+            />
+          </section>
+        )}
         {!projects.length && (
           <p className="sidebar-empty">{tr("打开本地文件夹开始工作")}</p>
         )}
@@ -452,9 +725,26 @@ export function WorkspaceSidebar({
       </div>
     </aside>
   );
+  const activeProjectMenu = projectMenu && projects.includes(projectMenu.path) ? (
+    <ProjectActionMenu
+      menu={projectMenu}
+      project={projectName(projectMenu.path, projectGroups)}
+      pinned={pinnedSet.has(projectMenu.path)}
+      clientShare={isClientProjectPath(projectMenu.path)}
+      ready={ready}
+      busy={busy}
+      onClose={() => setProjectMenu(null)}
+      onEditor={() => onEditor(projectMenu.path)}
+      onPin={onProjectPin ? () => onProjectPin(projectMenu.path) : undefined}
+      onRename={onProjectRename ? () => onProjectRename(projectMenu.path) : undefined}
+      onEdit={onProjectEdit ? () => onProjectEdit(projectMenu.path) : undefined}
+      onRemove={onProjectRemove ? () => onProjectRemove(projectMenu.path) : undefined}
+    />
+  ) : null;
   return (
     <div className="workspace-sidebar-stack">
       {mainSidebar}
+      {activeProjectMenu}
       {plugins && <HostPluginsSidebar visible={plugins.open} model={plugins.model} page={plugins.page} onPage={plugins.onPage}
         onBack={plugins.onBack} onConfirm={plugins.onConfirm} />}
     </div>

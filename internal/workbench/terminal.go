@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -34,9 +35,11 @@ func (s *Server) newTerminal(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) closeTerminal(w http.ResponseWriter, r *http.Request) {
-	if terminal := s.terminals.get(r.PathValue("id")); terminal != nil {
+	if terminal := s.terminals.get(r.PathValue("id")); terminal != nil && !terminal.ended() {
 		if id, _ := terminal.summary()["cli_session_id"].(string); id != "" {
-			if err := s.setSessionArchived(id, true, nil); err != nil {
+			if err := s.setSessionArchived(id, true, nil); errors.Is(err, os.ErrNotExist) {
+				s.terminals.remove(terminal.id)
+			} else if err != nil {
 				requestError(w, err)
 				return
 			}
@@ -122,6 +125,12 @@ func (s *Server) terminalStream(w http.ResponseWriter, r *http.Request) {
 			Rows uint16 `json:"rows"`
 		}
 		if json.Unmarshal(data, &input) != nil {
+			continue
+		}
+		session.mu.Lock()
+		hostInput := session.hostInput
+		session.mu.Unlock()
+		if hostInput {
 			continue
 		}
 		switch input.Type {

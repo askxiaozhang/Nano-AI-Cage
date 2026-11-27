@@ -35,6 +35,7 @@ if (args is ["--app-updater-only"]) return;
 
 #if WINDOWS
 NativeInputTests.Run();
+TrayMenuTests.Run();
 #endif
 
 var assertions = 0;
@@ -66,8 +67,12 @@ Check(WindowLayout.Bounds(new(0, 0, 3840, 2080), 192, new(100, 100, 1000, 700, 9
 Console.WriteLine($"Windows window layout: {assertions} assertions passed.");
 assertions = 0;
 Check(UpdatePolicy.IsWorkbench("http://localhost:4321/", 4321), "expected local origin rejected");
+Check(UpdatePolicy.AllowMicrophonePermission("http://localhost:4321/", 4321), "local workbench microphone permission rejected");
 foreach (var origin in new[] { "https://localhost:4321/", "http://localhost:4322/", "http://localhost.evil:4321/", "http://user@localhost:4321/", "http://127.0.0.1:4321/", "file:///C:/workbench.html" })
+{
     Check(!UpdatePolicy.IsWorkbench(origin, 4321), "foreign native bridge origin accepted: " + origin);
+    Check(!UpdatePolicy.AllowMicrophonePermission(origin, 4321), "foreign microphone permission accepted: " + origin);
+}
 Check(UpdatePolicy.Entry("http://localhost:4321/#token").Port == 4321, "entry URL rejected");
 Reject(() => UpdatePolicy.Entry("http://localhost:4321/"), "entry without token accepted");
 Check(UpdatePolicy.IsNewer("0.1.0-alpha.10", "0.1.0-alpha.9"), "numeric prerelease ordering");
@@ -162,7 +167,13 @@ try
     Check(pendingRecovery != null, "updater accepted a partially restored installation");
     Check(pendingRecovery!.Contains(candidate) && pendingRecovery.Contains(backup), "recovery error omitted the preserved directories");
     Check(File.Exists(recoveryReceipt), "recovery validation removed the persistent receipt");
+    string? pendingUpdate = null;
+    try { UpdateRecovery.EnsureNoPendingTransaction(snapshotSource); }
+    catch (IOException error) { pendingUpdate = error.Message; }
+    Check(pendingUpdate != null && pendingUpdate.Contains(recoveryReceipt), "update started an installer that a pending receipt blocks");
+    Check(File.Exists(recoveryReceipt), "pending transaction check removed the persistent receipt");
     File.Delete(recoveryReceipt);
+    UpdateRecovery.EnsureNoPendingTransaction(snapshotSource);
     var rejectedMissingInstallation = false;
     try { ensureComplete.Invoke(null, [Path.Combine(integration, "missing installation")]); }
     catch (System.Reflection.TargetInvocationException error) when (error.InnerException is IOException) { rejectedMissingInstallation = true; }
@@ -184,6 +195,68 @@ try
     var rejected = false;
     try { await UpdateRecovery.PrepareRollback(backup); } catch (IOException) { rejected = true; }
     Check(rejected, "recovery continued without a prepared response from the old backend");
+    if (OperatingSystem.IsWindows())
+    {
+        // The candidate App was started outside the helper and left a
+        // controller child running from the installation.
+        var running = Path.Combine(integration, "running application");
+        InstallFixture(running, false);
+        foreach (var file in Directory.EnumerateFiles(AppContext.BaseDirectory))
+            File.Copy(file, Path.Combine(running, Path.GetFileName(file)));
+        File.Copy(Environment.ProcessPath!, Path.Combine(running, "Cage.exe"), true);
+        var runningRelease = Path.Combine(integration, "running release");
+        using var runningApp = System.Diagnostics.Process.Start(Backend.StartInfo(Path.Combine(running, "Cage.exe"), "smoke-wait", runningRelease))!;
+        using var runningChild = System.Diagnostics.Process.Start(Backend.StartInfo(Path.Combine(running, "resources", "cage.exe"), "smoke-wait", runningRelease))!;
+        try
+        {
+            Check(!await UpdateRecovery.StopInstalledApps(backup), "rollback stopped an App of another installation");
+            Check(!runningApp.HasExited, "another installation's App exited");
+            Check(await UpdateRecovery.StopInstalledApps(running), "rollback left the candidate App running");
+            Check(runningApp.HasExited && !runningChild.HasExited, "rollback stopped more than the exact candidate launcher");
+            var blocked = false;
+            try { await UpdateRecovery.WaitForInstalledProcesses(running, TimeSpan.FromMilliseconds(500)); }
+            catch (IOException error) when (error.Message.Contains("cage.exe")) { blocked = true; }
+            Check(blocked, "rollback continued while a candidate process still ran from the installation");
+            File.WriteAllText(runningRelease, "release");
+            await UpdateRecovery.WaitForInstalledProcesses(running, TimeSpan.FromSeconds(10));
+            Check(runningChild.HasExited, "rollback continued before the candidate process exited");
+        }
+        finally
+        {
+            File.WriteAllText(runningRelease, "release");
+            foreach (var process in new[] { runningApp, runningChild })
+                if (!process.WaitForExit(5000)) { process.Kill(); process.WaitForExit(); }
+        }
+
+        // A candidate started after that check runs from the failed folder
+        // once detach has moved its program folders.
+        var detached = Path.Combine(integration, "detached application");
+        Directory.Move(running, detached);
+        var detachedRelease = Path.Combine(integration, "detached release");
+        var controllerInvoked = Path.Combine(backup, "resources", "controller-invoked");
+        using var detachedApp = System.Diagnostics.Process.Start(Backend.StartInfo(Path.Combine(detached, "Cage.exe"), "smoke-wait", detachedRelease))!;
+        using var detachedChild = System.Diagnostics.Process.Start(Backend.StartInfo(Path.Combine(detached, "resources", "cage.exe"), "smoke-wait", detachedRelease))!;
+        try
+        {
+            File.Delete(controllerInvoked);
+            await UpdateRecovery.StopDetachedCandidate(backup, detached, TimeSpan.FromMilliseconds(500));
+            Check(detachedApp.HasExited, "cleanup started while the candidate App ran from the failed folder");
+            Check(File.Exists(controllerInvoked), "rollback did not stop a controller the detached App may have restarted");
+            Check(!detachedChild.HasExited, "fixture did not keep a candidate process running past the wait");
+            File.WriteAllText(detachedRelease, "release");
+            await UpdateRecovery.StopDetachedCandidate(backup, detached, TimeSpan.FromSeconds(10));
+            Check(detachedChild.HasExited, "cleanup started before the detached candidate process exited");
+            File.Delete(controllerInvoked);
+            await UpdateRecovery.StopDetachedCandidate(backup, detached, TimeSpan.FromSeconds(10));
+            Check(!File.Exists(controllerInvoked), "rollback stopped the environment again with no candidate running");
+        }
+        finally
+        {
+            File.WriteAllText(detachedRelease, "release");
+            foreach (var process in new[] { detachedApp, detachedChild })
+                if (!process.WaitForExit(5000)) { process.Kill(); process.WaitForExit(); }
+        }
+    }
 
     var garbage = Path.Combine(integration, "locked backup"); Directory.CreateDirectory(garbage);
     var lockedFile = Path.Combine(garbage, "old.dll"); File.WriteAllText(lockedFile, "old version");

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { webcrypto } from "node:crypto";
+import { translate } from "./message-catalog.mjs";
 import { caretPollDelay, caretPollFast, caretFreshFor } from "./caret-poll.mjs";
 const source = readFileSync(
   new URL("./remote-input.js", import.meta.url),
@@ -72,6 +73,7 @@ function fixture(native = false, browserComposition = false, options = {}) {
     caretPollDelay,
     caretPollFast,
     caretFreshFor,
+    translate,
     Promise,
     Map,
     Set,
@@ -120,17 +122,19 @@ function fixture(native = false, browserComposition = false, options = {}) {
     container,
     {
       mode: () => mode,
+      claudeDesktop: options.claudeDesktop,
       systemClipboard: () => systemClipboard,
+      clipboardActive: options.clipboardActive,
+      syncClipboard: options.syncClipboard,
       preparePaste: options.preparePaste,
       copyText: options.copyText,
       onStatus: (t) => statuses.push(t),
-      onFallback() {},
-      isActive: () => true,
+      onFallback: options.onFallback || (() => {}),
+      isActive: options.isActive || (() => true),
       setCopyContext: async (context, valid) => { if (valid()) copyContexts.push(context); },
-      insertText: async (text) => {
+      insertText: options.insertText || (async (text) => {
         texts.push(text);
-        return options.insertText?.(text);
-      },
+      }),
       insertComposition: browserComposition ? async (id, value) => {
         if (id !== currentTabId) throw new Error("Input target changed");
         compositions.push({ id, ...value });
@@ -278,6 +282,18 @@ test("a private browser clipboard uses its surface path while OS sharing is acti
     const context = f.armCopy();
     await f.controller.receiveCopy({ id: "tab-1", text: "private browser copy", context });
     assert.deepEqual(f.writes, ["private browser copy"]);
+  } finally { f.controller.dispose(); }
+});
+
+test("a desktop uses its scoped clipboard and preserves held Control during paste", async () => {
+  let synced = 0;
+  const f = fixture(true, false, { clipboardActive: () => true, syncClipboard: async () => { synced++; } });
+  try {
+    f.key("keydown", "Control", "ControlLeft", { ctrlKey: true });
+    await f.controller.readAndPaste();
+    assert.equal(synced, 1);
+    assert.equal(f.reads(), 0);
+    assert.ok(!f.keys.some(([sym, , down]) => sym === 0xffe3 && down === false));
   } finally { f.controller.dispose(); }
 });
 
@@ -442,6 +458,192 @@ function fakeClock() {
   };
 }
 
+test("Windows Claude Desktop keeps WebView focus across successive Pinyin compositions", async () => {
+  const clock = fakeClock();
+  const calls = [];
+  const f = fixture(true, true, {
+    ...clock,
+    claudeDesktop: true,
+    surface: {
+      width: 800, height: 600,
+      getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+    },
+    native: async (name, value) => { calls.push({ name, value }); return true; },
+  });
+  try {
+    f.win.chrome = { webview: {} };
+    f.win.cageNativeIMEAvailable = true;
+    f.rfb.focus();
+    await clock.advance(0);
+    for (const [pinyin, word] of [["wo", "我"], ["jintian", "今天"]]) {
+      inputEvent(f, "compositionstart");
+      f.target.value = pinyin;
+      inputEvent(f, "input", { data: pinyin, inputType: "insertCompositionText", isComposing: true });
+      inputEvent(f, "compositionend", { data: word });
+      await new Promise(resolve => setImmediate(resolve));
+      await clock.advance(caretPollFast);
+    }
+    assert.equal(calls.some(({ name }) => name === "remoteInput"), false);
+    assert.deepEqual(f.compositions.filter(e => e.mode === "commit").map(e => e.text), ["我", "今天"]);
+  } finally { f.controller.dispose(); }
+});
+
+test("Windows Claude Desktop sends a phrase delivered per ideograph as one insertion", async () => {
+  const clock = fakeClock();
+  const f = fixture(false, false, { ...clock, claudeDesktop: true });
+  try {
+    f.win.chrome = { webview: {} };
+    f.rfb.focus();
+    for (const character of "今天天") assert.equal(f.key("keydown", character, "").defaultPrevented, true);
+    for (const character of "气很好") {
+      f.target.value = character;
+      inputEvent(f, "input", { data: character, inputType: "insertText" });
+    }
+    assert.deepEqual(f.texts, []);
+    await clock.advance(8);
+    assert.deepEqual(f.texts, ["今天天气很好"]);
+    await clock.advance(100);
+    assert.deepEqual(f.texts, ["今天天气很好"]);
+  } finally { f.controller.dispose(); }
+});
+
+test("a stream of ideographs flushes eight milliseconds after the first character", async () => {
+  const clock = fakeClock();
+  const f = fixture(false, false, { ...clock, claudeDesktop: true });
+  try {
+    f.win.chrome = { webview: {} };
+    f.rfb.focus();
+    f.key("keydown", "中", "");
+    await clock.advance(7);
+    f.key("keydown", "国", "");
+    await clock.advance(1);
+    assert.deepEqual(f.texts, ["中国"]);
+  } finally { f.controller.dispose(); }
+});
+
+test("a single oversized dictation bypasses the buffer intact after earlier text", async () => {
+  const clock = fakeClock();
+  const f = fixture(false, false, { ...clock, claudeDesktop: true });
+  try {
+    f.win.chrome = { webview: {} };
+    f.rfb.focus();
+    const dictated = "中".repeat(1023) + "🙂";
+    f.key("keydown", "前", "");
+    f.target.value = dictated;
+    inputEvent(f, "input", { data: dictated, inputType: "insertText" });
+    assert.deepEqual(f.texts, ["前", dictated]);
+    await clock.advance(8);
+    assert.deepEqual(f.texts, ["前", dictated]);
+  } finally { f.controller.dispose(); }
+});
+
+test("switching panes drains text accepted by the old pane and ignores subsequent input", async () => {
+  const clock = fakeClock();
+  let active = true;
+  const delivered = [];
+  const f = fixture(false, false, {
+    ...clock, claudeDesktop: true, isActive: () => active,
+    insertText: async (text, { committed }) => {
+      if (active || committed) delivered.push(text);
+    },
+  });
+  try {
+    f.win.chrome = { webview: {} };
+    f.rfb.focus();
+    f.key("keydown", "中", "");
+    active = false;
+    f.controller.deactivate();
+    f.key("keydown", "文", "");
+    await clock.advance(8);
+    assert.deepEqual(delivered, ["中"]);
+  } finally { f.controller.dispose(); }
+});
+
+test("closing the original connection keeps undelivered text available for manual recovery", async () => {
+  const clock = fakeClock(), recovered = [];
+  let active = true;
+  const f = fixture(false, false, {
+    ...clock, claudeDesktop: true, isActive: () => active,
+    insertText: async () => { throw new Error("Input disconnected"); },
+    onFallback: text => recovered.push(text),
+  });
+  f.win.chrome = { webview: {} };
+  f.rfb.focus();
+  f.key("keydown", "字", "");
+  active = false;
+  f.controller.dispose();
+  await clock.advance(8);
+  assert.deepEqual(recovered, ["字"]);
+});
+
+test("a pending phrase is sent before the next key, click, composition or blur", async () => {
+  const clock = fakeClock();
+  const f = fixture(false, false, { ...clock, claudeDesktop: true });
+  try {
+    f.win.chrome = { webview: {} };
+    f.rfb.focus();
+    const steps = [
+      () => f.key("keydown", "Enter", "Enter"),
+      () => f.armCopy(),
+      () => inputEvent(f, "compositionstart"),
+      () => inputEvent(f, "blur"),
+    ];
+    for (const [index, step] of steps.entries()) {
+      f.key("keydown", "中", "");
+      f.key("keydown", "国", "");
+      step();
+      assert.equal(f.texts.length, index + 1);
+      assert.equal(f.texts.at(-1), "中国");
+      inputEvent(f, "compositionend", { data: "" });
+      f.rfb.focus();
+    }
+    await clock.advance(100);
+    assert.deepEqual(f.texts, ["中国", "中国", "中国", "中国"]);
+  } finally { f.controller.dispose(); }
+});
+
+test("a pending phrase is sent when the input is disposed", async () => {
+  const clock = fakeClock();
+  const f = fixture(false, false, { ...clock, claudeDesktop: true });
+  f.win.chrome = { webview: {} };
+  f.rfb.focus();
+  f.key("keydown", "中", "");
+  f.controller.dispose();
+  assert.deepEqual(f.texts, ["中"]);
+  await clock.advance(100);
+  assert.deepEqual(f.texts, ["中"]);
+});
+
+test("the first composition after a click is committed through the validated insertion", async () => {
+  const clock = fakeClock();
+  const f = fixture(false, true, { ...clock, claudeDesktop: true });
+  try {
+    f.win.chrome = { webview: {} };
+    f.rfb.focus();
+    await clock.advance(0);
+    f.armCopy();
+    inputEvent(f, "compositionstart");
+    f.target.value = "zhongguo";
+    inputEvent(f, "input", { data: "zhongguo", inputType: "insertCompositionText", isComposing: true });
+    inputEvent(f, "compositionend", { data: "中国" });
+    await clock.advance(8);
+    assert.deepEqual(f.compositions, []);
+    assert.deepEqual(f.texts, ["中国"]);
+
+    await clock.advance(caretPollFast);
+    inputEvent(f, "compositionstart");
+    inputEvent(f, "compositionend", { data: "今天" });
+    await clock.advance(8);
+    assert.deepEqual(f.compositions.filter(e => e.mode === "commit").map(e => e.text), ["今天"]);
+    assert.deepEqual(f.texts, ["中国"]);
+
+    f.armCopy();
+    inputEvent(f, "compositionstart");
+    inputEvent(f, "compositionend", { data: "" });
+    await clock.advance(8);
+    assert.deepEqual(f.texts, ["中国"]);
+  } finally { f.controller.dispose(); }
+});
 test("releasing native input cancels the active composition before its late end event", async () => {
   const clock = fakeClock();
   const calls = [];
@@ -654,7 +856,9 @@ test("fullwidth punctuation without composition uses text, while host punctuatio
 });
 test("a punctuation failure after Chinese composition shows the input error and allows the next commit", async () => {
   const message = "客机输入响应超时，请重试";
-  const f = fixture(false, false, { insertText: text => {
+  const commits = [];
+  const f = fixture(false, false, { insertText: async text => {
+    commits.push(text);
     if (text === "？") throw new Error(message);
   } });
   try {
@@ -667,7 +871,7 @@ test("a punctuation failure after Chinese composition shows the input error and 
     assert.deepEqual(f.statuses, [message]);
     inputEvent(f, "compositionstart");
     inputEvent(f, "compositionend", { data: "继续" });
-    assert.deepEqual(f.texts, ["你好", "？", "继续"]);
+    assert.deepEqual(commits, ["你好", "？", "继续"]);
   } finally { f.controller.dispose(); }
 });
 test("ASCII punctuation is committed on release when the host IME stays silent", () => {
@@ -1084,5 +1288,41 @@ test('remote hover shape updates even without an editable focus and rejects arbi
       await clock.advance(2500);
       assert.ok(readings > before);
     } finally { f.controller.dispose(); }
+  });
+
+  test("copy succeeds while Windows native input owns focus and document.hasFocus is false", async () => {
+    const clock = fakeClock();
+    const nativeWrites = [];
+    let hasFocus = true;
+    const f = fixture(true, true, {
+      ...clock,
+      surface: {
+        width: 800,
+        height: 600,
+        getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+      },
+      caretRect: async () => ({ available: true, context: "b".repeat(32), rect: [240, 120, 0, 24] }),
+      native: async (name, value) => {
+        if (name === "clipboardRevision") return 7;
+        if (name === "clipboardSyncWrite") { nativeWrites.push(value); return { revision: 8 }; }
+        return true;
+      },
+    });
+    f.doc.hasFocus = () => hasFocus;
+    f.doc.visibilityState = "visible";
+    f.win.cageNativeIMEAvailable = true;
+    try {
+      f.rfb.focus();
+      await clock.advance(0);
+      // Native Win32 IME box now owns focus, so WebView2 reports document.hasFocus() === false.
+      hasFocus = false;
+      const context = f.armCopy();
+      assert.ok(context);
+      await f.controller.receiveCopy({ id: "tab-1", text: "windows native copy", context });
+      assert.equal(nativeWrites.length, 1);
+      assert.equal(nativeWrites[0].text, "windows native copy");
+    } finally {
+      f.controller.dispose();
+    }
   });
 }

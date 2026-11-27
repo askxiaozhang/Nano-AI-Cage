@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -38,6 +39,7 @@ type launchResponse struct {
 	ConfigPath     string             `json:"config_path,omitempty"`
 	ClientOnly     bool               `json:"client_only,omitempty"`
 	DesktopGateway bool               `json:"desktop_gateway,omitempty"`
+	SessionID      string             `json:"session_id,omitempty"`
 	URL            string             `json:"url"`
 	Controller     ControllerIdentity `json:"controller"`
 }
@@ -139,6 +141,45 @@ func (s *Server) handoffWithVMOwnerLocked(w http.ResponseWriter, permittedOwner 
 	go s.shutdown()
 }
 
+// handoffPreservingVMLocked retires the control service while leaving an
+// already-running guest intact so a replacement controller in the active
+// desktop session can reattach without interrupting the VM. Active jobs,
+// terminals, and mobile CLI sessions still refuse handoff.
+func (s *Server) handoffPreservingVMLocked(w http.ResponseWriter) {
+	s.mu.Lock()
+	if s.closing {
+		s.mu.Unlock()
+		s.op.Unlock()
+		http.Error(w, "后台正在更新，请重新打开 Cage。", http.StatusServiceUnavailable)
+		return
+	}
+	reason := ""
+	switch {
+	case s.jobs.snapshot().Running:
+		reason = handoffBusyJob
+	case s.terminals.hasLive():
+		reason = handoffBusyTerminal
+	case len(s.mobileCLI.activeAccounts()) != 0:
+		reason = handoffBusyMobile
+	case s.shutdown == nil:
+		reason = handoffNotReady
+	}
+	if reason != "" {
+		s.mu.Unlock()
+		s.op.Unlock()
+		http.Error(w, reason, http.StatusConflict)
+		return
+	}
+	s.closing = true
+	s.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", "18")
+	_, _ = w.Write([]byte("{\"stopping\":true}\n"))
+	_ = http.NewResponseController(w).Flush()
+	s.op.Unlock()
+	go s.shutdown()
+}
+
 func controllerHasVM(profile string) bool {
 	running, err := controllerVMState(profile)
 	return err != nil || running
@@ -174,8 +215,16 @@ func controllerVMOwners(profile string) ([]string, error) {
 	var owners []string
 	for _, path := range records {
 		b, err := os.ReadFile(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
 		if err != nil {
 			return nil, err
+		}
+		if len(bytes.TrimSpace(b)) == 0 || !json.Valid(b) {
+			// Only a crash or power loss can leave an empty or cut-off record
+			// (see cage.Config.RecordRunningAt); it names no live owner.
+			continue
 		}
 		var record struct {
 			PID     int    `json:"pid"`

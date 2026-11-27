@@ -1,5 +1,14 @@
 export const sessionKey = tab => tab.cli_session_id ? `session:${tab.cli_session_id}` : tab.id;
 
+// Mirrors the host limit, which counts only terminals whose process is still running.
+export const TERMINAL_LIMIT = 12;
+export const liveTerminalCount = tabs => tabs.filter(tab => tab.kind === "terminal" && !tab.closed).length;
+
+export function unassignedTerminalTabs(tabs, projects, projectGroups = []) {
+  const folders = new Set(projects.flatMap(path => projectGroups.find(group => group.workspace === path)?.folders || [path]));
+  return tabs.filter(tab => tab.kind === "terminal" && !folders.has(tab.workspace));
+}
+
 export function projectSessionRows(tabs, sessions, saved, manualOrder, baseline) {
   const live = tabs.filter(tab => !tab.closed || !sessions.some(session => session.id === tab.cli_session_id));
   const rows = [
@@ -13,7 +22,8 @@ export function projectSessionRows(tabs, sessions, saved, manualOrder, baseline)
     const session = sessions.find(session => session.id === tab.cli_session_id);
     return { ...tab, claudeAccountNumber: session?.account_id ? session.claudeAccountNumber : tab.claudeAccountNumber,
       sessionActive: Boolean(session?.active),
-      sessionRunningElsewhere: Boolean(tab.historySession && session?.running),
+      sessionPaused: Boolean(session?.paused),
+      sessionRunningElsewhere: Boolean(tab.historySession && session?.running && !session.paused),
       sessionClaudeDesktop: Boolean(tab.historySession && session?.running && session?.claude_desktop),
       sessionPinned: Boolean(session ? session.pinned : saved[tab.id]?.pinned) };
   });

@@ -23,9 +23,11 @@ type terminalSession struct {
 	backgroundLogin       bool
 	mu                    sync.Mutex
 	id, title             string
+	creationOrder         int
 	sharedID              string
 	connectionID          string
 	conversationEnded     bool
+	paused                bool
 	workspace             string
 	kind, claudeAccountID string
 	googleAccountID       string
@@ -42,6 +44,8 @@ type terminalSession struct {
 	loginNotice           string
 	dismissed             bool
 	exitOK                bool
+	exitCode              int
+	hostInput             bool
 	closed                bool
 	clients               map[chan []byte]bool
 	done                  chan struct{}
@@ -55,6 +59,22 @@ func (t *terminalSession) accountID() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.claudeAccountID
+}
+
+func (t *terminalSession) ended() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.closed {
+		return false
+	}
+	if t.done != nil {
+		select {
+		case <-t.done:
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func (t *terminalSession) replaceable() bool {
@@ -86,8 +106,8 @@ func (t *terminalSession) summary() map[string]any {
 		}
 	}
 	return map[string]any{"id": t.id, "title": t.title, "closed": closed, "workspace": t.workspace, "kind": t.kind,
-		"claude_account_id": t.claudeAccountID, "claude_account_source": t.claudeAccountSource, "google_account_id": t.googleAccountID, "cli_session_id": t.sharedID,
-		"background_login": t.backgroundLogin, "login_notice": t.loginNotice, "cli_starting": t.cliStartupPendingLocked()}
+		"claude_account_id": t.claudeAccountID, "claude_account_source": t.claudeAccountSource, "google_account_id": t.googleAccountID, "cli_session_id": t.sharedID, "paused": t.paused,
+		"background_login": t.backgroundLogin, "login_notice": t.loginNotice, "cli_starting": t.cliStartupPendingLocked(), "host_input": t.hostInput}
 }
 
 func (t *terminalSession) cliStartupPendingLocked() bool {
@@ -180,6 +200,11 @@ func (t *terminalSession) enqueueInput(ctx context.Context, input string) error 
 	defer t.mu.Unlock()
 	if t.closed {
 		return os.ErrClosed
+	}
+	// A stale viewer can still send keystrokes after a stop. Keep its stream
+	// open, but never queue that line for the job or its eventual shell.
+	if t.paused {
+		return nil
 	}
 	select {
 	case t.inputs <- input:
@@ -279,6 +304,7 @@ func (t *terminalSession) run() {
 	}
 	t.mu.Lock()
 	t.exitOK = waitErr == nil
+	t.exitCode = hostCLIExitCode(waitErr)
 	for channel := range t.clients {
 		close(channel)
 		delete(t.clients, channel)

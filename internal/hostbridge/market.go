@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 // Market is a published list of plugins and where their archives live.
@@ -40,13 +41,15 @@ var CommunityMarket = Market{
 
 // MarketEntry is one plugin in the list.
 type MarketEntry struct {
-	Name        string   `json:"name"`
-	DisplayName string   `json:"displayName,omitempty"`
-	Version     string   `json:"version"`
-	Description string   `json:"description"`
-	Platforms   []string `json:"platforms,omitempty"`
-	Permissions []string `json:"permissions"`
-	Categories  []string `json:"categories,omitempty"`
+	Name        string                   `json:"name"`
+	DisplayName string                   `json:"displayName,omitempty"`
+	Version     string                   `json:"version"`
+	Description string                   `json:"description"`
+	Author      *MarketAuthor            `json:"author,omitempty"`
+	I18n        map[string]LocalizedText `json:"i18n,omitempty"`
+	Platforms   []string                 `json:"platforms,omitempty"`
+	Permissions []string      `json:"permissions"`
+	Categories  []string      `json:"categories,omitempty"`
 	// Kind, Engines and Contributes repeat the plugin's manifest. Kind is
 	// host when the list leaves it out.
 	Kind        string       `json:"kind,omitempty"`
@@ -60,9 +63,16 @@ type MarketEntry struct {
 	Bytes   int64  `json:"bytes"`
 	// Icon is the address of the plugin's picture, if it has one.
 	Icon string `json:"icon,omitempty"`
+	// Runtime names the runtime program the plugin uses (such as python3, node,
+	// npx, uv or powershell), when the list includes it. Only shown, never acted on.
+	Runtime string `json:"runtime,omitempty"`
 	// Source names the open-source project the plugin is built on, when it
 	// is. It is only shown, never acted on.
 	Source *Source `json:"source,omitempty"`
+	// AllPlatforms collects the union of declared platforms across all target
+	// entries of the same plugin in the market list, for display. Empty means
+	// all platforms (darwin, linux, windows).
+	AllPlatforms []string `json:"-"`
 }
 
 // Source is the project a plugin packages or builds on.
@@ -95,6 +105,80 @@ func (s *Source) valid() bool {
 		address.User == nil && address.Port() == ""
 }
 
+// MarketAuthor is the attribution published by the market for a listing.
+type MarketAuthor struct {
+	Name     string `json:"name"`
+	Official bool   `json:"official,omitempty"`
+}
+
+// LocalizedText is a plugin's display name and description in one language.
+type LocalizedText struct {
+	DisplayName string `json:"displayName,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// I18nFile is the optional translation table kept beside plugin.json.
+const (
+	I18nFile  = "i18n.json"
+	I18nLimit = 256 << 10
+)
+
+var localeTag = regexp.MustCompile(`^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$`)
+
+func plainText(text string, limit int) (string, bool) {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" || utf8.RuneCountInString(trimmed) > limit || strings.ContainsFunc(trimmed, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+		return "", false
+	}
+	return trimmed, true
+}
+
+func sanitizeI18n(raw map[string]LocalizedText) map[string]LocalizedText {
+	if len(raw) == 0 {
+		return nil
+	}
+	clean := make(map[string]LocalizedText, len(raw))
+	for code, entry := range raw {
+		if !localeTag.MatchString(code) || len(code) > 20 {
+			continue
+		}
+		var item LocalizedText
+		if name, ok := plainText(entry.DisplayName, 80); ok {
+			item.DisplayName = name
+		}
+		if desc, ok := plainText(entry.Description, 600); ok {
+			item.Description = desc
+		}
+		if item.DisplayName == "" && item.Description == "" {
+			continue
+		}
+		clean[code] = item
+	}
+	if len(clean) == 0 {
+		return nil
+	}
+	return clean
+}
+
+// LoadI18n reads the optional i18n.json inside an installed plugin folder.
+// Missing, linked or malformed files yield nil so plugins still load cleanly.
+func LoadI18n(dir string) map[string]LocalizedText {
+	file := filepath.Join(dir, I18nFile)
+	info, err := os.Lstat(file)
+	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > I18nLimit {
+		return nil
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return nil
+	}
+	var raw map[string]LocalizedText
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil
+	}
+	return sanitizeI18n(raw)
+}
+
 // FetchIcon downloads the entry's picture and returns it with its media type.
 func (m Market) FetchIcon(ctx context.Context, client *http.Client, entry MarketEntry) ([]byte, string, error) {
 	if entry.Icon == "" {
@@ -111,13 +195,36 @@ func (e MarketEntry) Supported() bool {
 
 // EngineSatisfied reports whether the application at version can run it.
 func (e MarketEntry) EngineSatisfied(version string) bool {
-	return Manifest{Engines: e.Engines}.EngineSatisfied(version)
+	return Manifest{Engines: e.Engines, Contributes: e.Contributes}.EngineSatisfied(version)
 }
 
-var marketTarget = regexp.MustCompile(`^(darwin|linux|win32)-(x64|arm64)$`)
+var (
+	marketTarget  = regexp.MustCompile(`^(darwin|linux|win32)-(x64|arm64)$`)
+	marketRuntime = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,31}$`)
+)
+
+func mergePlatforms(existing, added []string, allKnown bool) ([]string, bool) {
+	order := []string{"darwin", "windows", "linux"}
+	if allKnown || len(added) == 0 {
+		return slices.Clone(order), true
+	}
+	merged := slices.Clone(existing)
+	for _, p := range added {
+		if !slices.Contains(merged, p) {
+			merged = append(merged, p)
+		}
+	}
+	var ordered []string
+	for _, p := range order {
+		if slices.Contains(merged, p) {
+			ordered = append(ordered, p)
+		}
+	}
+	return ordered, len(ordered) == len(order)
+}
 
 const (
-	marketIndexLimit   = 1 << 20
+	marketIndexLimit   = 4 << 20
 	marketArchiveLimit = 20 << 20
 	// What an archive may unpack to.
 	marketUnpackedLimit = 100 << 20
@@ -142,6 +249,7 @@ func (m Market) Fetch(ctx context.Context, client *http.Client) ([]MarketEntry, 
 	}
 	var entries []MarketEntry
 	seen := map[string]int{}
+	allPlats := map[string]bool{}
 	for _, entry := range index.Plugins {
 		if entry.Kind == "" {
 			entry.Kind = KindHost
@@ -152,13 +260,20 @@ func (m Market) Fetch(ctx context.Context, client *http.Client) ([]MarketEntry, 
 			continue
 		}
 		if at, listed := seen[entry.Name]; listed {
+			merged, anyAll := mergePlatforms(entries[at].AllPlatforms, entry.Platforms, allPlats[entry.Name])
+			allPlats[entry.Name] = anyAll
 			if !entries[at].Supported() && entry.Supported() {
 				entries[at] = m.shown(entry)
 			}
+			entries[at].AllPlatforms = merged
 			continue
 		}
+		shown := m.shown(entry)
+		merged, anyAll := mergePlatforms(nil, entry.Platforms, entry.Kind == KindGuest)
+		allPlats[entry.Name] = anyAll
+		shown.AllPlatforms = merged
 		seen[entry.Name] = len(entries)
-		entries = append(entries, m.shown(entry))
+		entries = append(entries, shown)
 	}
 	return entries, nil
 }
@@ -172,6 +287,17 @@ func (m Market) shown(entry MarketEntry) MarketEntry {
 	if entry.Source != nil && !entry.Source.valid() {
 		entry.Source = nil
 	}
+	if entry.Runtime != "" && !marketRuntime.MatchString(entry.Runtime) {
+		entry.Runtime = ""
+	}
+	if entry.Author != nil {
+		if name, ok := plainText(entry.Author.Name, 80); ok {
+			entry.Author = &MarketAuthor{Name: name, Official: entry.Author.Official}
+		} else {
+			entry.Author = nil
+		}
+	}
+	entry.I18n = sanitizeI18n(entry.I18n)
 	// A picture from anywhere else is not shown; the plugin still is.
 	if rest := strings.TrimPrefix(entry.Icon, m.IconPrefix+entry.Name+"/"); m.IconPrefix == "" || rest == entry.Icon || !validIcon(rest) || strings.ContainsAny(rest, "?#%") {
 		entry.Icon = ""

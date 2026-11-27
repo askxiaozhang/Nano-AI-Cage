@@ -6,14 +6,12 @@ import {
   ChevronUp,
   Monitor,
   PanelLeftOpen,
-  Power,
   RefreshCw,
 } from "lucide-react";
 import { BrowserUploads } from "./browser-uploads";
 import { ProjectDialog } from "./project-dialog";
 import { api, nativeAvailable } from "./api";
 import { SafetyMessage } from "./safety-message";
-import { DeviceCheckButton } from "./device-checks";
 import { RemoteView } from "./views";
 import { useWindowVisibility } from "./window-visibility";
 import "./claude-desktop.css";
@@ -122,15 +120,17 @@ export function ClaudeDesktop({
   remoteRef,
   onStatus,
   onFallback,
-  onConfirm,
   onDetails,
   onExpand,
   sidebarCollapsed,
+  refreshSignal = 0,
+  autoStart = true,
+  onRunningChange,
 }) {
   const tr = useTranslation();
   const [closedChooser, setClosedChooser] = useState("");
-  const directoryRequest = uploads.find((item) => item.directory && item.id !== closedChooser);
-  const [zoom, setZoom] = useDesktopZoom();
+  const defaultUploads = uploads.filter((item) => !item.desktop || item.desktop === "default");
+  const directoryRequest = defaultUploads.find((item) => item.directory && item.id !== closedChooser);
   const windowVisible = useWindowVisibility();
   const screenVisible = visible && windowVisible;
   const [desktop, setDesktop] = useState(null);
@@ -141,6 +141,7 @@ export function ClaudeDesktop({
   const opened = useRef(false);
   const statusRequest = useRef(null);
   const statusRevision = useRef(0);
+  const lastRunning = useRef(null);
   const ownJob = status.job?.kind?.startsWith("claude-desktop-");
   const busy = submitting || Boolean(status.job?.running) || Boolean(jobID);
   const refresh = async (valid = () => true) => {
@@ -174,6 +175,18 @@ export function ClaudeDesktop({
     }
   };
   useEffect(() => {
+    if (!desktop) return;
+    const running = Boolean(desktop.running);
+    if (lastRunning.current !== running) {
+      lastRunning.current = running;
+      onRunningChange?.(running);
+    }
+  }, [desktop, onRunningChange]);
+  useEffect(() => {
+    if (!refreshSignal || !status.vm_running) return;
+    void refresh();
+  }, [refreshSignal, status.vm_running]);
+  useEffect(() => {
     if (!screenVisible || !status.vm_running || status.job?.running) return;
     let disposed = false;
     let timer;
@@ -182,7 +195,7 @@ export function ClaudeDesktop({
       if (disposed) return;
       if (value && !opened.current) {
         opened.current = true;
-        if (value.installed && !value.running && !value.failed && !jobID)
+        if (autoStart && value.installed && !value.running && !value.failed && !jobID)
           await run("start");
       }
       if (!disposed) timer = setTimeout(poll, 5000);
@@ -205,7 +218,19 @@ export function ClaudeDesktop({
   }, [status.job]);
   return (
     <section className="claude-desktop-view" aria-label="Claude Desktop">
-      {!nativeAvailable() && <BrowserUploads requests={uploads} onStatus={onStatus} />}
+      {sidebarCollapsed && (
+        <div className="desktop-sidebar-reveal">
+          <button
+            className="icon-button"
+            aria-label={tr("展开侧栏")}
+            title={tr("展开侧栏")}
+            onClick={onExpand}
+          >
+            <PanelLeftOpen size={15} />
+          </button>
+        </div>
+      )}
+      {!nativeAvailable() && <BrowserUploads requests={defaultUploads} onStatus={onStatus} />}
       {directoryRequest && <ProjectDialog
         key={directoryRequest.id}
         status={status}
@@ -220,18 +245,13 @@ export function ClaudeDesktop({
           await onProjectOpened(workspace);
         }}
       />}
-      <DesktopToolbar desktop={desktop} platform="Linux" zoom={zoom} setZoom={setZoom}
-        onConfirm={onConfirm} onStop={() => run("stop")} busy={busy} refresh={() => refresh()} sidebarCollapsed={sidebarCollapsed} onExpand={onExpand}>
-        {desktop?.installed && <button className="quiet-button" disabled={busy} onClick={async () => {
-          if (!desktop.running || await onConfirm({ title: "更新 Claude Desktop？", body: "请先保存应用内的工作。更新会关闭 Claude Desktop，从官方软件源安装可用版本，再重新打开；登录资料继续保留。", confirm: "更新应用" })) run("update");
-        }}>{tr("更新应用")}</button>}
-      </DesktopToolbar>
       {(error || statusError || desktop?.failed) && (
         <div className="connection-banner" role="alert">
           <SafetyMessage message={error || statusError || (desktop?.failure_reason === "oom-kill"
             ? "环境内存不足，Claude Desktop 已被系统关闭。请在设置中检查计算资源后重新打开。"
             : "Claude Desktop 未能启动，可重试打开或修复安装。")} />
           <button onClick={onDetails}>{tr("操作详情")}</button>
+          {error && <button onClick={() => setError("")}>{tr("关闭")}</button>}
         </div>
       )}
       {desktop?.running && desktop.managed === false && !desktop.native_user_session && <div className="connection-banner" role="status">{tr("当前应用尚未接入 Cage 账户解锁。请先保存并关闭应用，再重新打开。")}</div>}
@@ -249,7 +269,6 @@ export function ClaudeDesktop({
           <RemoteView
             ref={remoteRef}
             desktop
-            zoom={zoom}
             visible={visible}
             keyboard={status.keyboard}
             onStatus={onStatus}
@@ -305,7 +324,7 @@ export function ClaudeDesktop({
                 </button>
               )}
             </div>
-            {desktop?.installed && <p>{tr("Linux 版通过系统软件源更新。可点击上方“更新应用”，或在 Cage 终端运行 sudo apt update && sudo apt install --only-upgrade claude-desktop。")}</p>}
+            {desktop?.installed && <p>{tr("Linux 版通过系统软件源更新。可在“设置 → 环境与恢复”中更新，或在 Cage 终端运行 sudo apt update && sudo apt install --only-upgrade claude-desktop。")}</p>}
             <p className="desktop-note">
               {tr("关闭应用后释放图形会话资源，登录状态保留在 Cage 环境中。需要额外虚拟机的 Cowork 功能暂未适配。")}
             </p>

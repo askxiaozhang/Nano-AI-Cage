@@ -11,7 +11,7 @@ keywords: 下载 安装 环境 macOS Windows Linux Debian Apple Silicon WHPX KVM
 
 | 平台 | 要求与安装方式 |
 | --- | --- |
-| macOS | Apple Silicon、macOS 14+。打开 `.dmg`，将 Cage 拖入“应用程序”，再从那里启动。Intel Mac 暂不支持。 |
+| macOS | Apple Silicon 或 Intel 处理器、macOS 14+。按芯片下载 `macos-arm64` 或 `macos-amd64` 的 `.dmg`，将 Cage 拖入“应用程序”，再从那里启动。 |
 | Windows | Windows 10 22H2 / 11、x64。运行 `.exe` 安装器，启用“Windows 虚拟机监控程序平台”，并在系统要求时重启。未签名预览包会明确标注。 |
 | Linux | Debian 12 / Ubuntu 22.04 / 24.04、x86_64。需要 KVM 与当前用户的访问权限。执行 `sudo apt install ./Cage-<版本>-linux-amd64.deb` 补齐应用依赖，再从应用菜单打开。 |
 
@@ -28,7 +28,7 @@ Windows ARM64 和 Linux ARM64 暂不支持。平台依赖详情见 [Windows 指�
 
 首次使用需要先创建用户名和密码，密码至少 8 个字符。这个账户用于解锁当前 Cage，Claude 订阅需要另外在环境里登录。注册后请保存恢复密钥，忘记密码时可在登录页使用它重置；保存与补设步骤见[账户恢复](settings.md#保存恢复密钥)。
 
-完整桌面版在创建账户时默认勾选“记住我”，可以取消；勾选后同一系统用户以后打开 Cage 可自动进入。新安装没有跳过注册的入口；以前创建的免账号工作区仍可继续使用，适用范围见[受信任的本机登录](https://github.com/Lee-xeo/Claude-Cage/blob/main/docs/getting-started.md#受信任的本机登录)。已有账户可在登录页或“设置 → 账户”调整“记住我”。macOS 另可开启 Touch ID。手动锁定后仍需验证，退出账户会撤销快捷登录授权。账户密码不会加密整个项目目录或虚拟磁盘。
+完整桌面版在创建账户时默认勾选“记住我”，可以取消；勾选后同一系统用户以后打开 Cage 可自动进入。新安装没有跳过注册的入口；以前创建的免账号工作区仍可继续使用，适用范围见[受信任的本机登录](https://github.com/Lee-xeo/Claude-Cage/blob/main/docs/getting-started.md#受信任的本机登录)。已有账户可在登录页或“设置 → 账户”调整“记住我”。在支持 Touch ID 的 macOS 安装包中，还可以开启指纹解锁。手动锁定后仍需验证，退出账户会撤销快捷登录授权。账户密码不会加密整个项目目录或虚拟磁盘。
 
 若以前已有账户，现在再次出现创建页面，先停止操作并查[数据目录问题](troubleshooting.md#原账户与数据看不见了)。
 
@@ -38,7 +38,7 @@ Windows ARM64 和 Linux ARM64 暂不支持。平台依赖详情见 [Windows 指�
 
 “存储目录”已填入默认位置。需要更换时直接编辑，或点击“选择文件夹”选定本地磁盘上的专用空文件夹；点击“下一步：配置代理”时保存，目录无效时留在当前页提示修改。Windows 安装器里的程序目录与环境数据目录分开；例如应用装在 C 盘，环境可放在 `D:\CageData`。
 
-Mac、Linux 使用默认配置时，环境数据放在用户主目录的 `.claude-cage/state`。Windows 正式安装版在首次初始化时，默认填入安装目录下的 `CageData`，例如应用装在 `D:\Cage`，环境数据就放在 `D:\Cage\CageData`；没有写入权限时，在当前字段选择其他有权限的本地文件夹。已有环境继续使用原存储位置，不会自动迁移。更新或覆盖安装时，安装目录下的 `CageData` 保持原位，不随程序文件移动，虚拟磁盘路径不变。账户与配置仍保存在用户目录的 `.claude-cage`。
+Mac、Linux 使用默认配置时，环境数据放在用户主目录的 `.claude-cage/state`。Windows 正式安装版在首次初始化时，若应用安装在 `AppData` 和临时目录之外（例如 `D:\Cage`），默认填入安装目录下的 `CageData`（如 `D:\Cage\CageData`）；若应用安装在 `%LOCALAPPDATA%\Programs\Cage` 等 `AppData` 或临时目录中，则默认沿用用户主目录下的 `.claude-cage\state`，避免虚拟机本机套接字在 `AppData` 下受限。没有写入权限或需换盘时，在当前字段选择 `AppData` 之外的其他有权限本地文件夹。已有环境继续使用原存储位置，不会自动迁移，也可随时从设置迁移到其他本地目录。更新或覆盖安装时，安装目录下的 `CageData` 保持原位，不随程序文件移动，虚拟磁盘路径不变。账户与配置仍保存在用户目录的 `.claude-cage`。
 
 初始化页显示本机完整路径。系统镜像、后续镜像下载缓存与持久虚拟磁盘使用同一存储位置；旧版本已留在系统缓存目录的文件不自动移动或删除。更新、重装与卸载应用保留环境数据目录，重新安装后可以继续使用已有数据。不要手动删除这个目录。
 

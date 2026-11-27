@@ -40,6 +40,11 @@ type Config struct {
 	// One comma-separated string keeps Config comparable; every entry is an
 	// IPv4 network in CIDR form.
 	LANSubnets string `json:"lan_subnets,omitempty"`
+	// DNS holds backup and bootstrap resolvers from dns.json beside this file.
+	DNS DNSOptions `json:"-"`
+	// TLSClientHelloSplit is loaded from workbench.json beside this file so
+	// older versions with DisallowUnknownFields on config.json stay compatible.
+	TLSClientHelloSplit bool `json:"-"`
 }
 
 func DefaultConfig() Config {
@@ -66,6 +71,10 @@ func Load(path string) (Config, error) {
 	if err = c.Validate(); err != nil {
 		return c, err
 	}
+	if c.DNS, err = loadDNSOptions(filepath.Dir(path)); err != nil {
+		return c, err
+	}
+	c.TLSClientHelloSplit = loadTLSClientHelloSplit(filepath.Dir(path))
 	c.GuestProfile, err = guestprofile.Load(filepath.Dir(path))
 	return c, err
 }
@@ -101,6 +110,17 @@ func ParseLANSubnet(entry string) (netip.Prefix, error) {
 	return prefix, nil
 }
 
+func loadTLSClientHelloSplit(dir string) bool {
+	var prefs struct {
+		TLSClientHelloSplit bool `json:"tls_client_hello_split"`
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "workbench.json"))
+	if err != nil || len(data) > 1<<20 || json.Unmarshal(data, &prefs) != nil {
+		return false
+	}
+	return prefs.TLSClientHelloSplit
+}
+
 func (c Config) Validate() error {
 	u, err := url.Parse(c.ProxyURL)
 	if err != nil || u == nil {
@@ -120,9 +140,11 @@ func (c Config) Validate() error {
 	if u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
 		return errors.New("proxy URL must not contain a path, query or fragment")
 	}
-	d, err := url.Parse(c.DNSURL)
-	if err != nil || d.Scheme != "https" || d.Hostname() == "" || d.User != nil || d.Fragment != "" {
-		return errors.New("DNS URL must be an HTTPS DNS-over-HTTPS endpoint")
+	if _, err := validDoH(c.DNSURL); err != nil {
+		return err
+	}
+	if err := c.DNS.Validate(); err != nil {
+		return err
 	}
 	for _, entry := range LANEntries(c.LANSubnets) {
 		if _, err := ParseLANSubnet(entry); err != nil {

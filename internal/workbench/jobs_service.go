@@ -35,12 +35,16 @@ func (s *Server) lockCompletion(parent context.Context) error {
 // submitJob keeps network intent and account policy in the workbench. The
 // manager owns admission, execution, cancellation and published job state.
 func (s *Server) submitJob(kind string, run func() error) (Job, error) {
+	return s.submitJobWithInitiator(jobInitiatorDesktop, kind, run)
+}
+
+func (s *Server) submitJobWithInitiator(initiator, kind string, run func() error) (Job, error) {
 	s.mu.Lock()
 	if s.closing {
 		s.mu.Unlock()
 		return Job{}, errJobsClosed
 	}
-	if s.storageRecoveryError != "" && kind != "storage-recovery" {
+	if s.storageRecoveryError != "" && kind != "storage-recovery" && kind != "device-reset" {
 		err := fmt.Errorf("环境存储待恢复，请在设置中恢复后继续。%s", s.storageRecoveryError)
 		s.mu.Unlock()
 		return Job{}, err
@@ -51,7 +55,7 @@ func (s *Server) submitJob(kind string, run func() error) (Job, error) {
 		afterSuccess = func() error { return s.account.lockAccess(true) }
 	}
 	intentFailed := false
-	job, err := s.jobs.submit(&s.op, kind, s.safety.pauseVersion, func() error {
+	job, err := s.jobs.submitWithInitiator(&s.op, kind, initiator, s.safety.pauseVersion, func() error {
 		if kind == "safety" || (kind == "start" || kind == "restore") {
 			if err := s.saveNetworkIntentLocked(false); err != nil {
 				intentFailed = true

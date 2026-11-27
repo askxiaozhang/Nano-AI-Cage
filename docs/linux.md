@@ -6,6 +6,14 @@ Cage 的 Linux 桌面版面向 Debian 12、Ubuntu 22.04/24.04 的 x86_64 电脑�
 
 Ubuntu 22.04 的桌面包采用兼容该系统的构建基线，已在隔离容器验证真实窗口、浏览器启动、重装与卸载数据保留。完整 KVM 环境安装、物理桌面输入法和 Claude 登录尚未实测，不能把容器验证视为这些操作通过。
 
+## 支持范围
+
+官方发布的 Linux 桌面包只有 x86_64 的 `.deb`，面向 Debian 12、Ubuntu 22.04 和 Ubuntu 24.04；升级与卸载由 `apt`/`dpkg` 管理。Arch、Fedora 等非 Debian 发行版和 Linux ARM64 桌面目前没有官方安装包，也未经项目验证。社区维护的转换包（例如 AUR 中由 `.deb` 解包的包）不由本项目发布，依赖、升级与卸载以其维护者说明为准。
+
+在其他 x86_64 发行版上从源码构建时，`scripts/build-linux.sh` 需要 GTK 3、json-glib、WebKitGTK 4.1（2.40 或更新）的开发文件以及 Go、Node.js、uv，产物位于 `_output/linux-amd64/app`；`scripts/package-linux.sh` 只生成 `.deb`。运行本机环境还需要 QEMU（`qemu-system-x86_64`、`qemu-img`）、OVMF 固件、OpenSSH 客户端、iproute2、systemd 用户会话与 D-Bus 用户会话，包名按发行版自行对应。
+
+Linux ARM64 服务器可以按[部署说明](../deploy/cloud/README.md)用 `deploy/cloud/build-guest.sh` 在本机原生构建云端工作镜像；桌面端的一键部署仍只面向 x86_64 服务器。
+
 ## 安装前准备
 
 Ubuntu 22.04 需要启用 `universe`、`jammy-updates` 与 `jammy-security`，并安装更新后的 WebKitGTK 4.1（至少 2.40）。系统初始镜像中的旧 WebKit 无法运行当前工作台。
@@ -44,6 +52,8 @@ sudo apt install ./Cage-<版本>-linux-amd64.deb
 
 Linux 使用 Ctrl 快捷键：`Ctrl+O` 打开项目，`Ctrl+T` 新建网页，`Ctrl+L` 定位地址栏，`Ctrl+W` 关闭标签，`Ctrl+Shift+Enter` 新建终端。终端用 `Ctrl+Shift+C/V` 复制粘贴，`Ctrl+C` 中断命令。
 
+使用 v0.2.2 完整版时，从主机终端运行 `claude-cage login`，在 Cage 浏览器中登录 Claude 账号。然后进入项目目录运行 `claude-cage`，即可共享该目录并启动 Claude Code。若系统中 `cage` 这个命令名空闲，可用 `claude-cage install-cli` 安装短名。[本机终端命令与示例](guide/workbench.md#在本机终端使用-claude-code)
+
 关闭窗口保留后台环境与任务，再次打开 Cage 可重新连接。在应用内停止环境后退出，才能结束后台任务。Linux 本地账户使用密码解锁；设备快速解锁暂不提供。
 
 浏览器上传使用本机文件选择窗口，下载可通过 GTK“另存为”选择保存位置。侧栏“下载”提供打开文件、打开所在文件夹和再次另存为；文件按当前桌面关联的应用打开。操作与限制见[浏览器上传与下载](getting-started.md#浏览器上传与下载)。
@@ -62,7 +72,7 @@ sudo apt remove claude-cage
 
 ## 常见问题
 
-- 工作台无法显示：确认在普通用户的图形桌面会话中启动，且系统 WebKitGTK 安装完整。不要关闭 WebKit 沙箱来绕过桌面配置问题。
+- 工作台无法显示：确认在普通用户的图形桌面会话中启动，且系统 WebKitGTK 安装完整。不要关闭 WebKit 沙箱来绕过桌面配置问题。若主机安装了 NVIDIA GStreamer 插件（`libgstnvcodec.so`）或 gst-libav（`libgstlibav.so`，会导致 WebKit 渲染进程反复崩溃），Cage 会自动为内置 WebKit 建立私有插件目录与注册表缓存并排除这些插件，内置 WebKit 因此不使用 NVIDIA 与 FFmpeg 解码，工作台不受影响；检测到 NVIDIA 专有驱动（`/proc/driver/nvidia/version` 或 `/sys/module/nvidia`）时还会关闭 WebKit DMA-BUF 渲染，其他显卡保持 WebKit 默认；也可自行设置 `WEBKIT_DISABLE_DMABUF_RENDERER=1`（关闭）或 `=0`（保持开启），显式设置始终优先，并在启动阶段渲染进程崩溃时自动回退到软件渲染重试一次。若仍失败，请查看 `~/.claude-cage/logs/events.jsonl` 中的 WebKit 退出诊断记录。
 - Ubuntu 24.04 上窗口出现前报 `bwrap: setting up uid map: Permission denied` 或 `Failed to fully launch dbus-proxy`：系统默认限制非特权用户命名空间，WebKitGTK 的 bubblewrap 沙箱因此无法启动。保留沙箱，为 Cage 桌面程序添加应用专属的 AppArmor 配置，例如以管理员身份创建 `/etc/apparmor.d/claude-cage`：
 
   ```text

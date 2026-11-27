@@ -173,8 +173,7 @@ func startWindowsCore(ctx context.Context, profile string, s Store) error {
 		return err
 	}
 	path := filepath.Join(Dir(profile), "config.yaml")
-	bound, _ := BoundInterface(path)
-	if bound == name && Running(ctx, profile, s) {
+	if BindingMatches(path, name) && Running(ctx, profile, s) {
 		return nil
 	}
 	if err := Validate(ctx, profile, s); err != nil {
@@ -209,7 +208,7 @@ func startWindowsCore(ctx context.Context, profile string, s Store) error {
 	if err := removeWindowsCoreSocket(profile); err != nil {
 		return err
 	}
-	log := diagnostics.New(profile).Stream("proxy", "warn")
+	log := CoreLogStream(diagnostics.New(profile), profile, "warn")
 
 	cmd := exec.Command(core, "-d", Dir(profile), "-f", path)
 	cmd.Env, cmd.Stdout, cmd.Stderr = coreEnvironment(Dir(profile)), log, log

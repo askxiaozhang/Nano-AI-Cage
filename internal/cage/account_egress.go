@@ -35,7 +35,7 @@ type nodeListeners struct {
 	gate            *EgressGate
 	routes          map[string]*nodeListener
 	closed          bool
-	verify          func(context.Context, *Egress, Config, string) error
+	verify          func(context.Context, *Egress, Config, string, exitpolicy.LookupOptions) error
 }
 type nodeListener struct {
 	server   *http.Server
@@ -98,7 +98,7 @@ func (m *nodeListeners) prepare(id string) error {
 	}
 	life, stop := context.WithCancel(context.Background())
 	route := &nodeHandler{parent: m.gate, raw: raw, fingerprint: fingerprint, life: life, verify: func(ctx context.Context) error {
-		return m.verify(ctx, raw, cfg, filepath.Join(managedproxy.Dir(profile), "account-policy", id+".json"))
+		return m.verify(ctx, raw, cfg, filepath.Join(managedproxy.Dir(profile), "account-policy", id+".json"), LocationLookupOptions(m.configPath))
 	}}
 	server := &http.Server{Handler: route, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, IdleTimeout: 20 * time.Second, MaxHeaderBytes: 4096}
 	if m.routes == nil {
@@ -140,15 +140,77 @@ func (m *nodeListeners) close() {
 
 // Verify the actual outbound independently of the environment's selected node.
 // Persist a first-use anchor only after the exit/country evidence passes.
-func verifyNodeExit(ctx context.Context, raw *Egress, cfg Config, file string) error {
-	ip, err := probeExitIP(ctx, raw)
+// LocationLookupOptions reads the user's opt-in location fallbacks from the
+// workbench preferences beside configPath at each check, so a change in
+// settings reaches per-account node checks without restarting the gate. A
+// missing or unreadable file keeps the default providers only.
+func LocationLookupOptions(configPath string) exitpolicy.LookupOptions {
+	var prefs struct {
+		IPInfoFallback bool `json:"location_ipinfo_fallback"`
+	}
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(configPath), "workbench.json"))
+	if err != nil || len(data) > 1<<20 || json.Unmarshal(data, &prefs) != nil {
+		return exitpolicy.LookupOptions{}
+	}
+	return exitpolicy.LookupOptions{IPInfoFallback: prefs.IPInfoFallback}
+}
+
+// NodeLocation records the last verified country and timezone observed for an
+// account-bound proxy node so per-account Desktop/CLI sessions can align their
+// locale and timezone with that node's exit region.
+type NodeLocation struct {
+	CountryCode string `json:"country_code,omitempty"`
+	Timezone    string `json:"timezone,omitempty"`
+}
+
+func nodeLocationPath(policyFile string) string {
+	return strings.TrimSuffix(policyFile, ".json") + ".location.json"
+}
+
+// LoadNodeLocation reads the last verified exit region recorded for node id.
+func LoadNodeLocation(profile, id string) (NodeLocation, bool) {
+	if !validNodeID(id) {
+		return NodeLocation{}, false
+	}
+	file := nodeLocationPath(filepath.Join(managedproxy.Dir(profile), "account-policy", id+".json"))
+	data, err := os.ReadFile(file)
+	if err != nil || len(data) > 64<<10 {
+		return NodeLocation{}, false
+	}
+	var loc NodeLocation
+	if json.Unmarshal(data, &loc) != nil {
+		return NodeLocation{}, false
+	}
+	loc.CountryCode = strings.ToUpper(strings.TrimSpace(loc.CountryCode))
+	loc.Timezone = strings.TrimSpace(loc.Timezone)
+	if loc.CountryCode == "" && loc.Timezone == "" {
+		return NodeLocation{}, false
+	}
+	return loc, true
+}
+
+func saveNodeLocation(policyFile string, loc exitpolicy.Location) {
+	record := NodeLocation{
+		CountryCode: strings.ToUpper(strings.TrimSpace(loc.CountryCode)),
+		Timezone:    strings.TrimSpace(loc.Timezone),
+	}
+	if record.CountryCode == "" && record.Timezone == "" {
+		return
+	}
+	if data, err := json.Marshal(record); err == nil {
+		_ = managedproxy.Write(nodeLocationPath(policyFile), data)
+	}
+}
+
+func verifyNodeExit(ctx context.Context, raw *Egress, cfg Config, file string, options exitpolicy.LookupOptions) error {
+	ip, err := probeExitIP(ctx, raw, exitProbeReachabilityURL)
 	if err != nil {
 		return err
 	}
 	transport := &http.Transport{DialContext: raw.DialContext, DisableKeepAlives: true}
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, Timeout: 8 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("redirect refused") }}
-	loc, err := exitpolicy.Lookup(ctx, client, net.ParseIP(ip))
+	loc, err := exitpolicy.LookupWithOptions(ctx, client, net.ParseIP(ip), options)
 	if err != nil {
 		return err
 	}
@@ -182,6 +244,7 @@ func verifyNodeExit(ctx context.Context, raw *Egress, cfg Config, file string) e
 	if result, _ := policy.Evaluate(ip, &loc); result != exitpolicy.Passed {
 		return ErrGateClosed
 	}
+	saveNodeLocation(file, loc)
 	return nil
 }
 

@@ -16,8 +16,10 @@ func TestPackageInstallFailureClassification(t *testing.T) {
 		{"dns", "Err:1 https://deb.debian.org/debian trixie InRelease\n  Temporary failure resolving 'deb.debian.org'\n" + cmd, "无法解析下载服务器域名", "git curl ripgrep"},
 		{"dns-nodata", "E: Failed to fetch https://deb.debian.org/debian/pool/main/n/nodejs/nodejs.deb  Something wicked happened resolving 'deb.debian.org:https' (-5 - No address associated with hostname)\n" + cmd, "无法解析下载服务器域名", "git curl ripgrep"},
 		{"timeout", "Could not connect to 10.0.2.2:7890 (10.0.2.2). - connect (110: Connection timed out)\n" + cmd, "连接下载服务器失败或超时", "git curl ripgrep"},
+		{"tls_eof", "E: Failed to fetch https://deb.debian.org/pkg.deb  OpenSSL error: unexpected eof while reading\n" + cmd, "APT 下载连接提前中断", "git curl ripgrep"},
 		{"missing", "E: Unable to locate package ripgrep-x\n" + cmd, "找不到所需的软件包", "ripgrep-x"},
 		{"candidate", "E: Package 'fd-find' has no installation candidate\nnext line\n" + cmd, "找不到所需的软件包", "fd-find"},
+		{"interrupted", "E: dpkg was interrupted, you must manually run 'sudo dpkg --configure -a' to correct the problem.\n" + cmd, "上次中断的软件安装未能自动补完", "git curl ripgrep"},
 		{"unknown", "something odd happened\n" + cmd, "没有可识别的原因", "git curl ripgrep"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -64,5 +66,35 @@ func TestPackageInstallFailureReadsOlderSetupOutput(t *testing.T) {
 	older := packageInstallFailure("安装", cause, output+"CAGE_APT_FAILED "+payload)
 	if current == nil || older == nil || current.Error() != older.Error() {
 		t.Fatalf("old setup output lost its failure details: current=%v older=%v", current, older)
+	}
+}
+
+func TestPackageInstallFailureReportsKeptPartialDownload(t *testing.T) {
+	const marker = "APT_FAILED exit=100 command=apt-get install -y --no-install-recommends claude-desktop\n"
+	const tail = "Err:1 https://downloads.claude.ai/claude-desktop/apt/stable/main arm64 claude-desktop arm64 1.0\n  Connection timed out\nE: Failed to fetch https://downloads.claude.ai/claude-desktop.deb  Connection timed out\n"
+	err := packageInstallFailure("安装", errors.New("exit status 100"), tail+"APT_PARTIAL bytes=7864320\n"+marker)
+	if err == nil {
+		t.Fatal("expected failure")
+	}
+	msg := err.Error()
+	for _, want := range []string{"连接下载服务器失败或超时", "7.5 MiB", "APT 会尝试复用匹配的缓存"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("missing %q: %s", want, msg)
+		}
+	}
+	if strings.Contains(msg, "APT_PARTIAL") {
+		t.Fatalf("partial marker leaked into the output tail: %s", msg)
+	}
+	for name, log := range map[string]string{
+		"none":  tail + marker,
+		"zero":  tail + "APT_PARTIAL bytes=0\n" + marker,
+		"stale": "APT_PARTIAL bytes=4096\n" + tail + marker,
+	} {
+		if msg := packageInstallFailure("安装", errors.New("x"), log).Error(); strings.Contains(msg, "未完成的软件包") {
+			t.Fatalf("%s: reported a partial download that was not kept: %s", name, msg)
+		}
+	}
+	if msg := packageInstallFailure("安装", errors.New("x"), tail+"APT_PARTIAL bytes=2048\n"+marker).Error(); !strings.Contains(msg, "2 KiB") {
+		t.Fatalf("small partial size: %s", msg)
 	}
 }

@@ -1,7 +1,8 @@
-"""Guest-side Claude terminal discovery and authenticated local channel bridge."""
+# Guest-side Claude terminal discovery and authenticated local channel bridge.
 import contextlib
 import hashlib
 import json
+import mmap
 import os
 from pathlib import Path
 import re
@@ -66,42 +67,108 @@ def identifier(value):
 
 def read_json(path, default=None):
     try:
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return default
 
 
 def save(path, value):
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, delete=False) as stream:
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False) as stream:
         json.dump(value, stream, ensure_ascii=False)
+        stream.flush()
+        os.fsync(stream.fileno())
         temporary = stream.name
-    os.replace(temporary, path)
+    try:
+        os.replace(temporary, path)
+    except BaseException:
+        Path(temporary).unlink(missing_ok=True)
+        raise
 
 
 @contextlib.contextmanager
-def state_file(connection, readonly=False):
+def state_file(connection, readonly=False, nonblocking=False):
     folder = ROOT / identifier(connection)
     if readonly:
         yield read_json(folder / "state.json", {})
         return
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
     with (folder / "lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        operation = fcntl.LOCK_EX
+        if nonblocking and os.name == "posix":
+            operation |= fcntl.LOCK_NB
+        fcntl.flock(lock, operation)
         path = folder / "state.json"
         state = read_json(path, {})
         yield state
         save(path, state)
 
 
-def live(pid):
+def process_status(pid):
+    """A stopped job still owns its session, but cannot receive channel input."""
     if os.name == "nt":
-        return _platform["process_live"](pid)
+        return "running" if _platform["process_live"](pid) else "exited"
+    if not isinstance(pid, int) or pid <= 0:
+        return "exited"
+    if pid == os.getpid():
+        return "running"
     try:
-        os.kill(int(pid), 0)
-        return True
-    except (OSError, ValueError, TypeError):
-        return False
+        if sys.platform.startswith("linux"):
+            # The comm field is parenthesized and may contain spaces or ')'.
+            stat = Path("/proc", str(pid), "stat").read_bytes().rpartition(b") ")[2][:1]
+        else:
+            stat = subprocess.check_output(["ps", "-o", "stat=", "-p", str(pid)],
+                                           stderr=subprocess.DEVNULL, timeout=2).strip()[:1]
+    except (FileNotFoundError, ProcessLookupError, subprocess.CalledProcessError):
+        return "exited"
+    if stat in (b"T", b"t"):
+        return "paused"
+    return "exited" if stat in (b"", b"Z", b"X", b"x") else "running"
+
+
+def live(pid):
+    return process_status(pid) != "exited"
+
+
+def process_birth(pid):
+    """Stable across exec from the account wrapper to the official CLI."""
+    try:
+        if sys.platform.startswith("linux"):
+            fields = Path("/proc", str(pid), "stat").read_bytes().rpartition(b") ")[2].split()
+            boot_id = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+            return boot_id + ":" + fields[19].decode()
+        if os.name == "posix":
+            return subprocess.check_output(["ps", "-o", "lstart=", "-p", str(pid)],
+                                           stderr=subprocess.DEVNULL, timeout=2, text=True,
+                                           env={**os.environ, "LC_ALL": "C"}).strip()
+    except (IndexError, OSError, subprocess.SubprocessError):
+        pass
+    return ""
+
+
+def terminal_status(state):
+    if state.get("closed"):
+        return "exited"
+    pid = state.get("pid")
+    status = process_status(pid)
+    if status == "exited" or os.name != "posix":
+        return status
+    if state.get("pid_birth"):
+        return status if state["pid_birth"] == process_birth(pid) else "exited"
+    if status == "paused":
+        # Old records have no birth stamp. A stopped process with a recycled
+        # PID must not attach its pause flag to an unrelated conversation.
+        try:
+            rows = active_sessions(state["cli_id"], state["config"])
+        except (KeyError, OSError, ValueError, subprocess.SubprocessError):
+            return "exited"
+        if not any(row.get("pid") == pid for row in rows):
+            return "exited"
+    return status
+
+
+def any_paused(rows):
+    return any(process_status(row.get("pid")) == "paused" for row in rows)
 
 
 def config_directory(account):
@@ -141,6 +208,58 @@ def channel_message(text):
     return match.group(1), body.removesuffix("\n")
 
 
+COMMAND_RECORD_TAGS = (
+    "command-name",
+    "command-message",
+    "command-args",
+    "local-command-stdout",
+    "local-command-stderr",
+    "local-command-caveat",
+)
+SUMMARY_CACHE_VERSION = 2
+
+
+def is_command_record(text):
+    if not text:
+        return False
+    pos, end, found = 0, len(text), False
+    while True:
+        while pos < end and text[pos].isspace():
+            pos += 1
+        if pos >= end:
+            return found
+        matched = False
+        for tag in COMMAND_RECORD_TAGS:
+            open_tag = "<" + tag + ">"
+            if text.startswith(open_tag, pos):
+                close_tag = "</" + tag + ">"
+                close = text.find(close_tag, pos + len(open_tag))
+                if close < 0:
+                    return False
+                pos = close + len(close_tag)
+                found = True
+                matched = True
+                break
+        if not matched:
+            return False
+
+
+def auto_title_from_row(row):
+    if row.get("isSidechain") or row.get("isCompactSummary") or row.get("type") != "user":
+        return ""
+    text = text_content(row.get("message") or {})
+    if not text:
+        return ""
+    channel = channel_message(text) if row.get("isMeta") else None
+    if channel:
+        candidate = channel[1]
+    elif row.get("isMeta") or is_command_record(text):
+        return ""
+    else:
+        candidate = text
+    return candidate[:40] if candidate.strip() else ""
+
+
 def update_tools(turn, role, content):
     if not isinstance(content, list):
         return
@@ -177,10 +296,10 @@ def update_tools(turn, role, content):
 
 
 def transcript(path):
-    turns, seen, workspace, title = [], set(), "", ""
+    turns, seen, workspace, custom_title, auto_title = [], set(), "", "", ""
     if not path or not path.is_file() or path.is_symlink():
-        return turns, workspace, title, seen
-    with path.open() as stream:
+        return turns, workspace, "", seen
+    with path.open(encoding="utf-8") as stream:
         for line in stream:
             if len(line) > 4 * 1024 * 1024:
                 continue
@@ -188,11 +307,13 @@ def transcript(path):
                 row = json.loads(line)
             except ValueError:
                 continue
-            if row.get("isSidechain"):
+            if not isinstance(row, dict) or row.get("isSidechain"):
                 continue
             workspace = row.get("cwd") or workspace
             if row.get("type") == "custom-title":
-                title = row.get("customTitle") or title
+                custom_title = row.get("customTitle") or custom_title
+            if not auto_title:
+                auto_title = auto_title_from_row(row)
             key = row.get("uuid")
             if not key or key in seen:
                 continue
@@ -218,16 +339,34 @@ def transcript(path):
                 turn = turns[-1]
                 value = turn["text"] + ("\n\n" if turn["text"] else "") + text
                 turn["text"], turn["truncated"] = clip_text(value, REPLY_LIMIT), len(value.encode()) > REPLY_LIMIT
-    return turns, workspace, title, seen
+    return turns, workspace, custom_title or auto_title, seen
 
 
-def connection_for(session_id, config):
+def connection_states():
+    return [(path.parent.name, read_json(path, {})) for path in ROOT.glob("*/state.json")]
+
+
+def connection_for(session_id, config, states=None):
     matches = []
-    for path in ROOT.glob("*/state.json"):
-        state = read_json(path, {})
+    for name, state in connection_states() if states is None else states:
         if state.get("cli_id") == session_id and state.get("config") == str(config):
-            matches.append((path.parent.name, state))
-    return max(matches, key=lambda item: (live(item[1].get("pid")) and not item[1].get("closed"), live(item[1].get("channel_pid")), item[1].get("updated_at", 0)), default=("", {}))
+            matches.append((name, state))
+    return max(matches, key=lambda item: (terminal_status(item[1]) != "exited", live(item[1].get("channel_pid")), item[1].get("updated_at", 0)), default=("", {}))
+
+
+def observed_status(config, session_id, status):
+    if status != "exited" or os.name == "nt" or not (config / "sessions").is_dir():
+        return status
+    # A manual /resume has a CLI registration but no mobile channel. The last
+    # managed terminal may still have an old, closed state for the same UUID.
+    try:
+        rows = running_sessions_cached(str(config))
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return status
+    statuses = {process_status(row.get("pid")) for row in rows if row.get("sessionId") == session_id}
+    if "paused" in statuses:
+        return "paused"
+    return "running" if "running" in statuses else "exited"
 
 
 def view(config, session_id, path=None):
@@ -244,15 +383,27 @@ def view(config, session_id, path=None):
             turns, workspace, title, received = transcript(path)
     has_history = bool(turns)
     if connection and any(sent["id"] in received for sent in state.get("sent", [])):
-        with state_file(connection) as latest:
-            latest["sent"] = [sent for sent in latest.get("sent", []) if sent["id"] not in received]
-            state = dict(latest)
-    running = live(state.get("pid")) and not state.get("closed")
-    channel = running and live(state.get("channel_pid")) and not state.get("blocked") and not state.get("policy_unavailable") and not state.get("native_ccs_unverified")
+        # The hook holding this lock may be stopped with the rest of the
+        # foreground job. Display its last committed snapshot immediately.
+        try:
+            with state_file(connection, nonblocking=True) as latest:
+                latest["sent"] = [sent for sent in latest.get("sent", []) if sent["id"] not in received]
+                state = dict(latest)
+        except BlockingIOError:
+            pass
+    managed_status = terminal_status(state)
+    status = observed_status(config, session_id, managed_status)
+    running = status != "exited"
+    external = running and managed_status == "exited"
+    managed = managed_status == "running"
+    channel = managed and live(state.get("channel_pid")) and not state.get("blocked") and not state.get("policy_unavailable") and not state.get("native_ccs_unverified")
     known = {turn["id"] for turn in turns}
+    queued_title = ""
     for sent in state.get("sent", []):
         if sent["id"] not in known:
             turns.append({"id": sent["id"], "prompt": sent["text"], "text": "", "status": "interrupted" if sent.get("interrupted") else "queued"})
+            if not queued_title and isinstance(sent.get("text"), str) and sent["text"].strip():
+                queued_title = sent["text"][:40]
     display = state.get("display")
     if turns and display and state.get("busy") and display.get("text"):
         text = display["text"]
@@ -263,12 +414,12 @@ def view(config, session_id, path=None):
             turns[-1]["status"] = "failed"
         elif state.get("stopped"):
             turns[-1]["status"] = "stopped"
-        elif running and state.get("busy"):
+        elif managed and state.get("busy"):
             turns[-1]["status"] = "running"
         elif not running and turns[-1]["status"] == "queued":
             turns[-1]["status"] = "interrupted"
         approvals = state.get("approvals", [])
-        if running and approvals:
+        if managed and approvals:
             turns[-1]["status"] = "running"
             turns[-1]["approval"] = {key: value for key, value in approvals[0].items() if key != "relay_id"}
     shortened = any(turn.get("prompt_truncated") for turn in turns)
@@ -281,17 +432,38 @@ def view(config, session_id, path=None):
         notice = "这台主机的 Claude Code 管理策略关闭了 Channels，请由主机管理员处理。"
     elif state.get("policy_unavailable"):
         notice = "Cage 默认环境的通道配置未能更新，请在电脑更新环境组件。"
-    return {"cli_id": session_id, "config": str(config), "connection": connection, "native_ccs_unverified": bool(state.get("native_ccs_unverified")),
-            "workspace": workspace or state.get("workspace", ""), "title": title or (turns[0]["prompt"][:40] if turns else "Claude Code"),
-            "updated_at": modified, "turns": turns, "running": bool(running), "active": bool(running and (state.get("busy") or state.get("approvals"))), "channel_ready": bool(channel), "can_send": bool(channel and not state.get("resume_task")), "has_history": has_history, "history_truncated": shortened,
+    return {"cli_id": session_id, "config": str(config), "connection": "" if external else connection, "external_running": external, "native_ccs_unverified": bool(state.get("native_ccs_unverified")),
+            "workspace": workspace or state.get("workspace", ""), "title": title or queued_title or "Claude Code",
+            "updated_at": modified, "turns": turns, "running": running, "paused": status == "paused", "active": bool(managed and (state.get("busy") or state.get("approvals"))), "channel_ready": bool(channel), "can_send": bool(channel and not state.get("resume_task")), "has_history": has_history, "history_truncated": shortened,
             "connection_notice": "" if channel else notice, "account_failure": state.get("account_failure", ""),
             "resume_pending": bool(state.get("resume_task")), "native_history": native_history}
 
 
+def stamp(info):
+    # The change time also moves when a write keeps the size and modification time.
+    return [info.st_size, info.st_mtime_ns, info.st_ctime_ns, info.st_ino]
+
+
+def view_token(config, session_id):
+    states = [(n, s) for n, s in connection_states() if s.get("cli_id") == session_id and s.get("config") == str(config)]
+    conn, state = connection_for(session_id, config, states)
+    path = next((config / "projects").glob("*/" + session_id + ".jsonl"), None)
+    def st(t):
+        try:
+            return [str(t), *stamp(t.stat())]
+        except (OSError, AttributeError, TypeError):
+            return [str(t or "")]
+    frozen = state.get("resume_transcript")
+    status = observed_status(config, session_id, terminal_status(state))
+    parts = [str(config), session_id, status, conn, st(path), st(Path(frozen)) if isinstance(frozen, str) and frozen else None,
+             [[n, v, terminal_status(v), live(v.get("channel_pid"))] for n, v in states]]
+    return hashlib.sha256(json.dumps(parts, sort_keys=True, default=str).encode()).hexdigest(), status != "exited"
+
+
 def history_summary(path):
     workspace, title = "", ""
-    with path.open() as stream:
-        for _ in range(64):
+    with path.open(encoding="utf-8") as stream:
+        for _ in range(256):
             line = stream.readline(4 << 20)
             if not line:
                 break
@@ -299,14 +471,11 @@ def history_summary(path):
                 row = json.loads(line)
             except ValueError:
                 continue
+            if not isinstance(row, dict) or row.get("isSidechain"):
+                continue
             workspace = row.get("cwd") or workspace
-            if row.get("type") == "user":
-                text = text_content(row.get("message") or {})
-                channel = channel_message(text) if row.get("isMeta") else None
-                if channel:
-                    title = channel[1][:40]
-                elif not row.get("isMeta"):
-                    title = text[:40]
+            if not title:
+                title = auto_title_from_row(row)
             if workspace and title:
                 break
     # Names and directory changes are appended to the transcript. Read a
@@ -319,18 +488,53 @@ def history_summary(path):
             row = json.loads(line)
         except (ValueError, UnicodeDecodeError):
             continue
+        if not isinstance(row, dict) or row.get("isSidechain"):
+            continue
         workspace = row.get("cwd") or workspace
         if row.get("type") == "custom-title":
             title = row.get("customTitle") or title
     return workspace, title
 
 
+def cache_path(kind, config):
+    return ROOT.parent / "cli-channel-cache" / (kind + "-" + hashlib.sha256(str(config).encode()).hexdigest()[:24] + ".json")
+
+
+def read_cache(path):
+    try:
+        value = read_json(path, {})
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+AGENTS_REFRESH = 30
+
+
+def running_sessions_cached(config, fresh=False):
+    try:
+        with os.scandir(Path(config) / "sessions") as entries:
+            sig = sorted([e.name, *stamp(e.stat())] for e in entries if e.name.endswith(".json"))
+    except FileNotFoundError:
+        sig = []
+    path = cache_path("agents", config)
+    cached = {} if fresh else read_cache(path)
+    rows, at = cached.get("rows"), cached.get("at")
+    if fresh or cached.get("signature") != sig or not (isinstance(at, (int, float)) and 0 <= time.time() - at < AGENTS_REFRESH) or not isinstance(rows, list):
+        rows = running_sessions(config)
+        try:
+            save(path, {"signature": sig, "at": time.time(), "rows": rows})
+        except OSError:
+            pass
+    return [row for row in rows if isinstance(row, dict) and live(row.get("pid"))]
+
+
 def discover(request):
     allowed = request["workspaces"]
     sessions = []
+    states = connection_states()
     configs = {str(config_directory(account)) for account in request["accounts"]}
-    for state_path in ROOT.glob("*/state.json"):
-        state = read_json(state_path, {})
+    for _, state in states:
         if state.get("config"):
             configs.add(state["config"])
     for config_name in configs:
@@ -339,47 +543,81 @@ def discover(request):
         def observed_running():
             nonlocal running
             if running is None:
-                running = running_sessions(config_name)
+                running = running_sessions_cached(config_name, fresh=bool(request.get("fresh")))
             return running
         def process_state(session_id):
             rows = [row for row in observed_running() if row.get("sessionId") == session_id]
-            return {"running": bool(rows), "claude_desktop": any(
+            return {"running": bool(rows), "paused": any_paused(rows), "claude_desktop": any(
                 session_entrypoint(row, config) in ("claude-desktop", "claude-desktop-3p", "local-agent", "local_agent", "remote_desktop")
                 for row in rows)}
-        paths = sorted((config / "projects").glob("*/*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
-        found = set()
-        for path in paths:
+        summary_path = cache_path("summaries", config_name)
+        summaries = read_cache(summary_path)
+        changed = False
+        listed = []
+        for path in (config / "projects").glob("*/*.jsonl"):
+            try:
+                listed.append((path, path.lstat()))
+            except OSError:
+                continue
+        listed.sort(key=lambda item: item[1].st_mtime, reverse=True)
+        found, current = set(), set()
+        for path, info in listed:
             if path.is_symlink():
                 continue
             try:
                 session_id = identifier(path.stem)
             except ValueError:
                 continue
-            workspace, title = history_summary(path)
+            key, sig = str(path), stamp(info)
+            current.add(key)
+            entry = summaries.get(key)
+            if isinstance(entry, list) and len(entry) == 4 and entry[0] == sig and entry[3] == SUMMARY_CACHE_VERSION:
+                workspace, title = entry[1], entry[2]
+            else:
+                workspace, title = history_summary(path)
+                summaries[key] = [sig, workspace, title, SUMMARY_CACHE_VERSION]
+                changed = True
             if not any(workspace_within(workspace, root) for root in allowed):
                 continue
-            connection, state = connection_for(session_id, config)
+            connection, state = connection_for(session_id, config, states)
             process = process_state(session_id)
-            item = {"cli_id": session_id, "config": config_name, "connection": connection,
-                    "workspace": workspace, "title": title or "Claude Code", "updated_at": path.stat().st_mtime,
-                    "running": process["running"] or bool(live(state.get("pid")) and not state.get("closed")),
-                    "claude_desktop": process["claude_desktop"],
-                    "active": bool(live(state.get("pid")) and not state.get("closed") and (state.get("busy") or state.get("approvals")))}
+            status = terminal_status(state)
+            external = os.name != "nt" and status == "exited" and process["running"]
+            sessions.append({"cli_id": session_id, "config": config_name, "connection": "" if external else connection, "external_running": external,
+                             "workspace": workspace, "title": title or "Claude Code", "updated_at": info.st_mtime,
+                             "running": process["running"] or status != "exited", "paused": status == "paused" or (external and process["paused"]), "claude_desktop": process["claude_desktop"],
+                             "active": bool(status == "running" and (state.get("busy") or state.get("approvals")))})
             found.add(session_id)
-            sessions.append(item)
-        for state_path in ROOT.glob("*/state.json"):
-            state = read_json(state_path, {})
+        stale = set(summaries) - current
+        for key in stale:
+            del summaries[key]
+        if changed or stale:
+            try:
+                save(summary_path, summaries)
+            except OSError:
+                pass
+        for _, state in states:
             session_id = state.get("cli_id")
             workspace = state.get("workspace", "")
             if state.get("config") != config_name or not session_id or session_id in found or not any(workspace_within(workspace, root) for root in allowed):
                 continue
             item = view(config, session_id)
             process = process_state(session_id)
+            if os.name != "nt" and process["running"] and (not item["running"] or item["external_running"]):
+                item.update(connection="", external_running=True, paused=process["paused"])
             item["running"] = item["running"] or process["running"]
             item["claude_desktop"] = process["claude_desktop"]
             item.pop("turns")
             sessions.append(item)
     return sessions
+
+
+def delivered(payload, request_id):
+    try:
+        with open(payload["transcript_path"], "rb") as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as m:
+            return m.rfind(request_id.encode()) >= 0
+    except (OSError, KeyError, TypeError, ValueError):
+        return False
 
 
 def hook(connection):
@@ -407,8 +645,15 @@ def hook(connection):
             state.pop("pending_send", None)
         if event in ("UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop", "SessionEnd"):
             state["approvals"] = []
+        # A sent message belongs to this Stop only once it is in the transcript;
+        # a late Stop from a cancelled turn must not release a newer send.
+        own = event in ("Stop", "StopFailure") and state.get("pending_send") and delivered(payload, state["pending_send"])
+        if event == "Stop" and (state.get("busy") or own) and not state.get("stopped") and not state.get("account_failure"):
+            state["turn_done"] = state.get("turn_done", 0) + 1
         if event in ("Stop", "StopFailure", "SessionEnd"):
             state["busy"] = False
+            if own or event == "SessionEnd":
+                state.pop("pending_send", None)
             state.pop("display", None)
         if event == "StopFailure":
             state["account_failure"] = payload.get("error", "unknown")
@@ -450,7 +695,7 @@ if value == {"permissions": {"defaultMode": "bypassPermissions"}, "tui": "fullsc
         backup.write_bytes(old)
         backup.chmod(0o600)
     value['channelsEnabled'] = True
-    with tempfile.NamedTemporaryFile(dir=p.parent, mode='w', delete=False) as f:
+    with tempfile.NamedTemporaryFile(dir=p.parent, mode='w', encoding='utf-8', delete=False) as f:
         json.dump(value, f)
         name = f.name
     os.chmod(name, 0o644)
@@ -465,7 +710,20 @@ if value == {"permissions": {"defaultMode": "bypassPermissions"}, "tui": "fullsc
 
 
 def active_session(session_id, config=""):
-    return bool(active_sessions(session_id, config))
+    return active_session_state(session_id, config)["running"]
+
+
+def active_session_state(session_id, config=""):
+    if os.name == "nt":
+        return {"running": bool(active_sessions(session_id, config)), "paused": False}
+    config = config or str(config_directory("default"))
+    _, state = connection_for(session_id, Path(config))
+    if state.get("pid_birth"):
+        status = terminal_status(state)
+        if status != "exited":
+            return {"running": True, "paused": status == "paused"}
+    rows = active_sessions(session_id, config)
+    return {"running": bool(rows), "paused": any_paused(rows)}
 
 
 def active_sessions(session_id, config=""):
@@ -491,7 +749,7 @@ def session_entrypoint(row, config):
     if not isinstance(pid, int) or pid <= 0:
         return ""
     try:
-        with (config / "sessions" / (str(pid) + ".json")).open() as stream:
+        with (config / "sessions" / (str(pid) + ".json")).open(encoding="utf-8") as stream:
             state = json.loads(stream.read(64 << 10))
         if (state.get("pid") == pid and state.get("sessionId") == row.get("sessionId")
                 and row.get("startedAt") is not None and state.get("startedAt") == row["startedAt"]):
@@ -505,10 +763,17 @@ def handoff_session(request):
     session_id = identifier(request["cli_id"])
     config = request["config"]
     workspace = request["workspace"]
-    rows = active_sessions(session_id, config)
     # A live shared channel is reusable even after the host service restarts.
     _, state = connection_for(session_id, Path(config))
-    if live(state.get("pid")) and live(state.get("channel_pid")) and not state.get("closed"):
+    paused = {"running": True, "paused": True, "channel_ready": False}
+    status = terminal_status(state)
+    if status == "paused":
+        return paused
+    rows = active_sessions(session_id, config)
+    if any_paused(rows):
+        return paused
+    if (status == "running" and live(state.get("channel_pid")) and
+            (os.name != "posix" or state.get("pid_birth") or any(row.get("pid") == state["pid"] for row in rows))):
         return {"running": True, "channel_ready": True}
     for row in rows:
         if not workspace_within(row.get("cwd") or "", workspace):
@@ -524,6 +789,8 @@ def handoff_session(request):
         matched = next((item for item in current if item.get("pid") == row["pid"] and workspace_within(item.get("cwd") or "", workspace) and item.get("kind") == "interactive" and item.get("status") in ("idle", "waiting")), None)
         if matched is None:
             return {"running": bool(current)}
+        if process_status(matched["pid"]) == "paused":
+            return paused
         if matched["status"] == "waiting":
             save(handoff_receipt(config, session_id), {"resume_task": True, "permission_mode": "manual" if matched.get("waitingFor") != "input needed" else ""})
         try:
@@ -548,7 +815,10 @@ def prepare_account_switch(request):
     sid = identifier(request["cli_id"])
     switch_id = identifier(request["switch_id"])
     config = Path(request["config"]).resolve()
-    connection = identifier(request["connection"])
+    # A session found in an account's history but never opened through Cage has
+    # no channel. It may still be continued by another account once no process
+    # owns it; the source account need not be signed in to read its history.
+    connection = identifier(request["connection"]) if request["connection"] else ""
     workspace = request["workspace"]
     folder = ROOT.parent / "cli-account-switches" / switch_id
     receipt = folder / "receipt.json"
@@ -558,28 +828,49 @@ def prepare_account_switch(request):
         if saved["binding"] != binding:
             raise ValueError("账号交接编号已用于另一项操作")
         return {"transcript": str(folder / "history.jsonl")}
-    with state_file(connection) as state:
-        if state.get("cli_id") != sid or state.get("config") != str(config) or state.get("workspace") != workspace:
-            raise ValueError("原会话身份或项目已变化，请刷新后重试")
-        if state.get("busy") or state.get("approvals") or state.get("pending_send") or state.get("sent"):
-            raise ValueError("原会话仍有任务、待发消息或审批，请结束后再切换账号")
-        existing = state.get("account_switch")
-        if existing and existing != switch_id:
-            raise ValueError("此会话已有账号交接尚未完成")
-        state["account_switch"] = switch_id
-        save(ROOT / connection / "state.json", state)
-    rows = active_sessions(sid, str(config))
+    state = {}
+    paused_notice = "Claude 已暂停，原会话仍占用此账号，请先继续对话"
+    if not connection:
+        existing_connection, existing_state = connection_for(sid, config)
+        rows = active_sessions(sid, str(config))
+        if terminal_status(existing_state) == "paused" or any_paused(rows):
+            raise ValueError(paused_notice)
+        if existing_connection or rows:
+            raise ValueError("原会话正在运行或已在其他终端打开，请先结束后再用其他账号继续")
+    else:
+        if terminal_status(read_json(ROOT / connection / "state.json", {})) == "paused":
+            raise ValueError(paused_notice)
+        with state_file(connection) as state:
+            if state.get("cli_id") != sid or state.get("config") != str(config) or state.get("workspace") != workspace:
+                raise ValueError("原会话身份或项目已变化，请刷新后重试")
+            if terminal_status(state) == "paused":
+                raise ValueError(paused_notice)
+            if state.get("busy") or state.get("approvals") or state.get("pending_send") or state.get("sent"):
+                raise ValueError("原会话仍有任务、待发消息或审批，请结束后再切换账号")
+            existing = state.get("account_switch")
+            if existing and existing != switch_id:
+                raise ValueError("此会话已有账号交接尚未完成")
+            # A manually reopened Claude may own the session after the original
+            # terminal closed. Inspect it before fencing the old connection.
+            rows = active_sessions(sid, str(config))
+            if terminal_status(state) == "paused" or any_paused(rows):
+                raise ValueError(paused_notice)
+            state["account_switch"] = switch_id
+            save(ROOT / connection / "state.json", state)
     # Any other live worker in this account can represent a background
     # child of the source. The registry does not expose a complete ancestry.
     listing = subprocess.run(["claude", "agents", "--json"], env={**os.environ, "CLAUDE_CONFIG_DIR": str(config)}, capture_output=True, text=True, timeout=10)
     if listing.returncode != 0:
         raise ValueError("无法确认后台任务，未切换账号")
-    if any(row.get("sessionId") != sid and live(row.get("pid")) for row in json.loads(listing.stdout)):
+    agents = json.loads(listing.stdout)
+    if not connection and any(row.get("sessionId") == sid and live(row.get("pid")) for row in agents):
+        raise ValueError("原会话正在运行或已在其他终端打开，请先结束后再用其他账号继续")
+    if any(row.get("sessionId") != sid and live(row.get("pid")) for row in agents):
         raise ValueError("原账号仍有其他执行任务，请结束后台任务后再交接")
     for row in rows:
         if not workspace_within(row.get("cwd") or "", workspace) or row.get("status") != "idle" or row.get("kind") != "interactive":
             raise ValueError("原 Claude Code 尚未安全停止，请先结束本轮任务")
-    pid = state.get("pid")
+    pid = state.get("pid") if terminal_status(state) != "exited" else None
     fingerprint = process_fingerprint(pid) if live(pid) else ""
     def executing():
         if not live(pid):
@@ -591,6 +882,12 @@ def prepare_account_switch(request):
     if executing() and not any(row.get("pid") == pid for row in rows):
         raise ValueError("无法核对原进程状态，请先退出原 Claude Code 后重试")
     for row in rows:
+        if process_status(row["pid"]) == "paused":
+            if connection:
+                with state_file(connection) as current:
+                    if current.get("account_switch") == switch_id:
+                        current.pop("account_switch")
+            raise ValueError(paused_notice)
         terminate_cli(row["pid"])
     deadline = time.monotonic() + 5
     while executing() and time.monotonic() < deadline:
@@ -611,7 +908,7 @@ def prepare_account_switch(request):
     if path is None or path.is_symlink():
         raise ValueError("原会话历史不可用，未切换账号")
     pending = set()
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         row = json.loads(line)
         if row.get("isSidechain"):
             continue
@@ -638,8 +935,9 @@ def prepare_account_switch(request):
         temporary = stream.name
     os.replace(temporary, target)
     save(receipt, {"binding": binding, "requests": state.get("requests", {})})
-    with state_file(connection) as state:
-        state["closed"] = True
+    if connection:
+        with state_file(connection) as state:
+            state["closed"] = True
     return {"transcript": str(target)}
 
 
@@ -650,12 +948,12 @@ def copy_history(source, target):
 
 
 def cancel_account_switch(request):
-    connection = identifier(request["connection"])
     switch_id = identifier(request["switch_id"])
-    with state_file(connection) as state:
-        if state.get("cli_id") != identifier(request["cli_id"]) or state.get("account_switch") not in (None, switch_id):
-            raise ValueError("原会话交接已变化")
-        state.pop("account_switch", None)
+    if request["connection"]:
+        with state_file(identifier(request["connection"])) as state:
+            if state.get("cli_id") != identifier(request["cli_id"]) or state.get("account_switch") not in (None, switch_id):
+                raise ValueError("原会话交接已变化")
+            state.pop("account_switch", None)
     # The source may already be stopped, but it remains resumable. Remove only
     # this operation's frozen copy so a later retry cannot use stale history.
     folder = ROOT.parent / "cli-account-switches" / switch_id
@@ -698,7 +996,7 @@ def purge_session(request):
     for path in ROOT.glob("*/state.json"):
         state = read_json(path, {})
         if state.get("cli_id") == session_id and state.get("config") == str(config):
-            if live(state.get("pid")) and not state.get("closed"):
+            if terminal_status(state) != "exited":
                 raise ValueError("会话通道尚未退出，请稍后重试")
             shutil.rmtree(path.parent)
     identity = ROOT.parent / "mobile-cli-identities" / session_id
@@ -710,6 +1008,35 @@ def purge_session(request):
         if binding.get("cli_id") == session_id or binding.get("target_cli_id") == session_id:
             shutil.rmtree(saved.parent)
     return {"ok": True}
+
+
+def start_terminal(request, shell_umask):
+    # Only the short helper path and a descriptor survive exec. Account launch
+    # arguments stay in this private, anonymous file for the real CLI child.
+    module = Path(__file__).with_suffix(".terminal.py")
+    if not module.exists():
+        module = Path(__file__).with_name("terminal_job.py")
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as data:
+        json.dump([__file__, request, shell_umask], data)
+        data.seek(0)
+        os.set_inheritable(data.fileno(), True)
+        os.execv(sys.executable, [sys.executable, "-I", client_runtime()["path"](module), str(data.fileno())])
+
+
+def continue_terminal(request):
+    if os.name != "posix":
+        return {"error": "terminal_unavailable"}
+    try:
+        # Like the channel RPC, a relative socket path also works in long home directories.
+        os.chdir(ROOT / identifier(request["connection"]))
+        with socket.socket(socket.AF_UNIX) as client:
+            client.settimeout(2)
+            client.connect("job")
+            client.sendall(json.dumps(request).encode() + b"\n")
+            with client.makefile("rb") as stream:
+                return json.loads(stream.readline(8192))
+    except (OSError, KeyError, ValueError):
+        return {"error": "terminal_unavailable"}
 
 
 def launch(request):
@@ -751,22 +1078,26 @@ def launch(request):
         account = runpy.run_path(_controller_context["CAGE_CLI_ACCOUNT_HELPER"])
         if not account["has_status_line"](account["profile"](account_id)):
             status_command = _runtime["command_text"](_controller_context["CAGE_CLI_ACCOUNT_HELPER"], ["statusline", account_id])
-            settings["statusLine"] = {"type": "command", "command": status_command}
+            settings["statusLine"] = account["status_line"](status_command) if "status_line" in account else {"type": "command", "command": status_command}
     elif len(prefix) == 5 and Path(prefix[2]).name == "cage-claude-account" and prefix[3] == "run":
         account = runpy.run_path(prefix[2])
         if not account["has_status_line"](account["profile"](prefix[4])):
-            settings["statusLine"] = {"type": "command", "command": _runtime["command_text"](prefix[2], ["statusline", prefix[4]])}
+            command = _runtime["command_text"](prefix[2], ["statusline", prefix[4]])
+            # A newer account helper carries the user's status line padding.
+            settings["statusLine"] = account["status_line"](command) if "status_line" in account else {"type": "command", "command": command}
     save(folder / "settings.json", settings)
     argv = _runtime["command"](__file__, ["serve", connection])
     config = {"mcpServers": {connection: {"command": argv[0], "args": argv[1:]}}}
     save(folder / "mcp.json", config)
     with state_file(connection) as state:
-        if live(state.get("pid")) and not state.get("closed"):
+        if terminal_status(state) != "exited":
             raise ValueError("目标会话已有进程，未重复启动")
         state.update(codex_enabled=request.get("codex_enabled") is True, cli_id=session_id, config=str(config_directory("default")), login_subject=_controller_context.get("CAGE_CLAUDE_SUBJECT"),
                      workspace=str(Path.cwd()), pid=os.getpid(), closed=False, updated_at=time.time(), approvals=[], busy=False,
                      channel_pid=None, pending_send=None, display=None, stopped=False,
                      requests=previous.get("requests", {}), sent=previous.get("sent", []))
+        if os.name == "posix":
+            state["pid_birth"] = process_birth(os.getpid())
         receipt = handoff_receipt(config_directory("default"), session_id)
         transfer = read_json(receipt, {})
         state["resume_task"] = previous.get("resume_task", False) or transfer.get("resume_task", False)
@@ -815,6 +1146,11 @@ def launch(request):
 
 def rpc(request):
     connection = identifier(request["connection"])
+    # Claude's MCP child can be stopped in the same foreground group. Reject
+    # input before trying its socket; recheck under the lock in serve as well.
+    state = read_json(ROOT / connection / "state.json", {})
+    if terminal_status(state) == "paused":
+        return {"error": "Claude 已暂停，请先继续对话"}
     os.chdir(ROOT / connection)
     with socket.socket(socket.AF_UNIX) as client:
         client.settimeout(12 if request.get("action") == "codex-read" else 5)
@@ -851,6 +1187,8 @@ def serve(connection):
                         raise ValueError("终端已切换会话，请重新读取列表")
                     if state.get("account_switch"):
                         raise ValueError("此会话正在切换账号，请等待交接完成")
+                    if terminal_status(state) == "paused" and not delegate:
+                        raise ValueError("Claude 已暂停，请先继续对话")
                     if delegate:
                         self.wfile.write(json.dumps(mailbox.exchange(request)).encode() + b"\n")
                         return
@@ -965,7 +1303,7 @@ def serve(connection):
 
 
 def main():
-    os.umask(0o077)
+    shell_umask = os.umask(0o077)
     mode, argument = sys.argv[1:3]
     if mode == "ccs-live" and os.name == "nt":
         return _platform["launch_ccs_live"](argument, globals())
@@ -977,6 +1315,8 @@ def main():
         request = json.load(sys.stdin) if argument == "-" else json.loads(argument)
         if mode == "launch":
             return launch(request)
+        if mode == "terminal":
+            return start_terminal(request, shell_umask) if os.name == "posix" else launch(request)
         if mode == "discover":
             result = discover(request)
         elif mode == "view":
@@ -984,7 +1324,14 @@ def main():
             state = read_json(ROOT / identifier(request.get("connection") or request["cli_id"]) / "state.json", {})
             if state.get("cli_id") == request["cli_id"] and state.get("config"):
                 config = Path(state["config"])
-            result = view(config, identifier(request["cli_id"]))
+            session_id = identifier(request["cli_id"])
+            token, running = view_token(config, session_id)
+            if request.get("known") == token:
+                # The caller holds this exact view; skip reading the transcript.
+                result = {"unchanged": True, "token": token, "running": running}
+            else:
+                result = view(config, session_id)
+                result["token"] = token
             if "login_stamp" in request and result["running"]:
                 observe = client_runtime().get("changed_login")
                 if observe:
@@ -999,7 +1346,12 @@ def main():
             result = rpc(request)
         elif mode == "active":
             config = request.get("config") or str(config_directory(request.get("account") or "default"))
-            result = {"running": active_session(identifier(request["cli_id"]), config)}
+            result = active_session_state(identifier(request["cli_id"]), config)
+        elif mode == "continue":
+            try:
+                result = continue_terminal(request)
+            except (OSError, ValueError, KeyError) as error:
+                result = {"error": str(error)}
         elif mode == "handoff":
             try:
                 result = handoff_session(request)

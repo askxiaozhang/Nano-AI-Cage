@@ -13,6 +13,7 @@ import {
   Pin,
   PinOff,
   TerminalSquare,
+  UsersRound,
   X,
 } from "lucide-react";
 import { dropAfter, tabName } from "./workspace-state.mjs";
@@ -35,7 +36,6 @@ export function TabIcon({ kind, favicon, agent, accountNumber, size = 16 }) {
 function TerminalAction({ label, icon: Icon, disabled, onClick }) {
   return (
     <button className="icon-button" aria-label={label} disabled={disabled} onClick={onClick}>
-      <span className="terminal-action-label" aria-hidden="true">{label}</span>
       <Icon size={14} />
     </button>
   );
@@ -61,6 +61,7 @@ export function WorkspaceTabs({
   splitDrag,
   openingSession,
   sessionOpenError,
+  onSessionAccount,
 }) {
   const tr = useTranslation();
   const [menu, setMenu] = useState(null);
@@ -94,7 +95,7 @@ export function WorkspaceTabs({
   const tabWidth = (id) =>
     id === active ? activeWidth : Math.min(220, otherWidth);
   const matchingTabs = tabs.filter((tab) =>
-    `${tabName(tab, saved)} ${tab.url || ""}`
+    `${tabName(tab, saved, undefined, tr)} ${tab.url || ""}`
       .toLowerCase()
       .includes(query.toLowerCase()),
   );
@@ -310,12 +311,12 @@ export function WorkspaceTabs({
         }
       >
         {tabs.map((tab, index) => {
-          const title = tabName(tab, saved);
+          const title = tabName(tab, saved, undefined, tr);
           const opening = Boolean(openingSession) && openingSession === tab.cli_session_id;
           const runningElsewhere = tab.sessionRunningElsewhere;
-          const runningNotice = tab.sessionClaudeDesktop
+          const runningNotice = tr(tab.sessionClaudeDesktop
             ? "Claude Desktop 占用中，请先在 Claude Desktop 中退出此会话再接续"
-            : "其他窗口占用中，退出原会话后可接续";
+            : "其他窗口占用中，退出原会话后可接续");
           const OwnerIcon = tab.sessionClaudeDesktop ? Monitor : TerminalSquare;
           const openError = tab.historySession && sessionOpenError?.id === tab.cli_session_id ? sessionOpenError.message : "";
           const errorID = `session-open-error-${tab.cli_session_id}`;
@@ -355,7 +356,7 @@ export function WorkspaceTabs({
                 className={tab.historySession ? "sidebar-session" : undefined}
                 aria-busy={opening || undefined}
                 aria-describedby={openError ? errorID : undefined}
-                aria-description={runningElsewhere ? runningNotice : undefined}
+                aria-description={tab.sessionPaused ? tr("已暂停") : runningElsewhere ? runningNotice : undefined}
                 aria-label={tab.claudeLabel ? `${title} · ${tab.claudeLabel}` : title}
                 aria-selected={tab.historySession ? undefined : tab.id === active}
                 aria-keyshortcuts={onSidebarReorder && tabs.length > 1 ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
@@ -411,7 +412,8 @@ export function WorkspaceTabs({
                 <span>{title}</span>
                 {tab.claudeLabel && <small className="claude-tab-profile">{tab.claudeLabel}</small>}
                 {saved[tab.id]?.pinned && <Pin size={11} className="tab-pin" />}
-                {!horizontal && !vertical && (opening || tab.sessionActive && !runningElsewhere) &&
+                {tab.sessionPaused && <small className="session-paused-label">{tr("已暂停")}</small>}
+                {!tab.sessionPaused && !horizontal && !vertical && (opening || tab.sessionActive && !runningElsewhere) &&
                   <LoaderCircle size={13} className="spin session-activity" role="img" aria-label={opening ? tr("正在打开会话") : tr("会话正在运行")} />}
               </button>
               {!horizontal && !vertical && runningElsewhere &&
@@ -429,10 +431,13 @@ export function WorkspaceTabs({
                 </button>
               ) : (
                 <div className="terminal-row-actions" role="group" aria-label={tr("{0} 的操作", (title))}>
+                  {tab.historySession && !runningElsewhere && onSessionAccount && tab.historySession.account_id && (
+                    <TerminalAction label={tr("用其他账号继续")} icon={UsersRound} disabled={busy || opening} onClick={() => onSessionAccount(tab.historySession)} />
+                  )}
                   <TerminalAction label={saved[tab.id]?.pinned ? tr("取消置顶") : tr("置顶")}
                     icon={saved[tab.id]?.pinned ? PinOff : Pin} disabled={busy} onClick={() => onPin(tab.id)} />
                   <TerminalAction label={tr("重命名")} icon={Pencil} disabled={busy} onClick={() => onRename(tab)} />
-                  <TerminalAction label={tab.cli_session_id ? tr("归档") : tr("关闭终端")} icon={tab.cli_session_id ? Archive : X} disabled={busy} onClick={event => onClose(tab, event.currentTarget)} />
+                  <TerminalAction label={tab.cli_session_id && !tab.closed ? tr("归档") : tr("关闭终端")} icon={tab.cli_session_id && !tab.closed ? Archive : X} disabled={busy} onClick={event => onClose(tab, event.currentTarget)} />
                 </div>
               )}
             </div>
@@ -487,7 +492,7 @@ export function WorkspaceTabs({
                       <TabIcon kind={tab.kind} favicon={tab.favicon}
                         agent={tab.terminalKind === "claude" || tab.terminalKind === "claude-login" || Boolean(tab.cli_session_id) || Boolean(tab.claude_account_id)}
                         accountNumber={tab.claudeAccountNumber} />
-                      <span>{tabName(tab, saved)}</span>
+                      <span>{tabName(tab, saved, undefined, tr)}</span>
                       {tab.id === active && (
                         <span className="current-tab-marker">{tr("当前")}</span>
                       )}

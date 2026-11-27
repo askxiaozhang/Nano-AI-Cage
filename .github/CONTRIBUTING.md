@@ -1,6 +1,9 @@
 # 贡献指南
 
-Cage 采用“贡献 Issue 审核 → 邀请成为协作者 → 提交 PR → 审查合入”的流程。仓库仅允许协作者创建 PR；修复代码、改进功能和修改文档都从明确的贡献方案开始。
+Cage 采用与开放插件市场解耦的协作方式：
+
+- **为 Claude 新增 MCP 能力，或为 Cage 制作自定义扩展页面**：请直接前往开放插件市场仓库 [cage-plugins](https://github.com/Lee-xeo/cage-plugins) 提交插件（开发规范见 [docs/plugins.md](../docs/plugins.md)），无需在 Cage 主仓库提 Issue。
+- **改进 Cage 本体（隔离环境、网络、工作台、跨平台桌面端与文档）**：采用“贡献 Issue 审核 → 邀请成为协作者 → 提交 PR → 审查合入”的流程。仓库仅允许协作者创建 PR；修复代码、改进功能和修改文档都从明确的贡献方案开始。
 
 ## 提交方案并等待审核
 
@@ -33,7 +36,7 @@ Issue 按涉及的主机系统带有三个标签：`macOS 主机`、`Windows 主
 1. 接受邀请后，将本地基线更新到仓库最新的 `main`。
 2. 为本次贡献创建独立分支，命名为“开始日期-GitHub用户名-工作内容”，例如 `261112-alice-fix-startup`。保留无关的在途改动，提交范围与审核通过的方案保持一致；扩大范围时先在原 Issue 中讨论。
 3. 完成实现并运行与改动相关的检查。涉及共享功能时核对 macOS、Windows 和 Linux；说明实际验证的平台、结果及未验证范围。
-4. 推送分支并创建指向 `main` 的 PR，在正文中关联贡献 Issue，例如 `Closes #123`，说明用户可见的变化、验证结果和已知限制。
+4. 推送分支并按 [PR 模板](PULL_REQUEST_TEMPLATE.md) 创建指向 `main` 的 PR，在正文中关联贡献 Issue（例如 `Closes #123`），说明用户可见的变化、验证结果、未验证范围和已知限制。
 5. 根据评审意见更新 PR。通过审查与所需检查后由维护者合入，随后删除已合入的分支并关闭对应 Issue。
 
 源代码、配置、日志和附件中均不得包含密码、令牌、订阅链接等敏感信息。引用第三方代码时注明来源并保留所需许可。
@@ -63,6 +66,27 @@ bash scripts/build-app.sh
 `GOTOOLCHAIN=auto` 会在需要时查找或下载满足模块要求的工具链；未在本地找到时，需要能访问 Go 工具链下载服务。macOS CI 的 `setup-go` 读取根 `go.mod`，构建子模块时也依赖这一选择机制。规则见 [Go 工具链说明](https://go.dev/doc/toolchain)。
 
 使用 `GOTOOLCHAIN=local` 时，先让 `PATH` 中的 Go 本身满足两个模块的要求，例如 Go 1.27.3 或更新版本；仅准备 Go 1.26.10 会在构建 `tools/tailnet` 时失败。离线构建还需预先准备 Go 模块、前端依赖和构建脚本所需的下载材料。Windows 与 Linux 构建也会使用该子模块，须核对同一版本要求。
+
+前端由 `make` 通过 `npm --prefix ui ci` 和 `npm run --prefix ui build` 构建。macOS CI 使用 Node.js 24；`ui` 依赖的 Vite 8 及其 Rolldown 打包器要求 Node.js 20.19+ 或 22.12+。建议与 CI 一致，使用 Node 24 的最新补丁版，构建前用 `node -v` 确认。
+
+`build-app.sh` 会先获取随附的代理核心 Mihomo。单独运行 `make cage` 只生成 `_output/bin/cage`，不含代理核心，此时代理导入会直接报“随附代理核心缺失”；在 macOS 或 Linux x86_64 上运行 `make cage-core`，它会校验并放到 `_output/proxy-core/mihomo`，`cage` 运行时从这里或同目录加载。
+
+### macOS 构建排查
+
+构建开始时会先链接一个最小 C 程序并让 Swift 导入 Cocoa，工具链有问题时在编译前报出原因。
+
+| 现象 | 处理 |
+| --- | --- |
+| cgo 链接报 `unknown architecture`（例如 `arm64e.x1`）或 Swift 报 `this SDK is not supported by the compiler` | 默认 SDK 比本机 clang 或 swiftc 新。未设置 `SDKROOT` 时，脚本会改用本机已安装、同时通过 C 链接与 Swift 导入 Cocoa 探测的最新 SDK 并提示所用路径；都不可用时请更新 Xcode 或 Command Line Tools，或手动设置 `SDKROOT`。 |
+| Swift 报 `redefinition of module 'SwiftBridging'` | Command Line Tools 升级后残留了旧的模块映射文件，`usr/include/swift/module.modulemap` 与 `bridging.modulemap` 重复定义。重新安装 Command Line Tools，或用 `xcode-select` 选择完整 Xcode。脚本不修改系统工具链。 |
+| 图标生成阶段出现与 Swift 无关的报错 | `PATH` 上可能有同名的非 Apple `swift`。构建脚本通过 `xcrun` 调用 Swift，若仍失败，检查 `xcode-select -p`。 |
+| 签名报 `resource fork, Finder information, or similar detritus not allowed` | 文件同步软件可能在签名期间写入 Finder 属性。脚本在本机临时目录签名，使用 `--install` 可直接安装到 `~/Applications`。若只需构建且同步目录中的成品无法通过校验，可将 `CAGE_BUILD_OUTPUT` 设为同步目录外的绝对 `.app` 路径。 |
+| `npm ci` 报 `EBADENGINE`，随后 Rolldown 可能报 `Cannot find native binding` | 用 `node -v` 与警告中的版本要求对照。若当前 Node 版本不符合要求，切换到 Node 24 后重新构建。 |
+| Rolldown 报 `Cannot find native binding`，内层 `dlopen` 错误含 `different Team IDs` | 用 `node -p 'process.execPath'` 查看实际运行的 Node。如果路径指向其他桌面应用内置的 Node，将 Node.js 官方 macOS 发行包的 `bin` 目录放到当前终端的 `PATH` 首位，再运行构建。 |
+| 只允许写入工作区的沙箱中 npm、uv 或 Swift 模块缓存报 `Operation not permitted` | 脚本发现默认缓存目录不可写时，改用 `_output/cache` 下的 npm、uv 和 Swift 模块缓存。`iconutil` 在部分沙箱中仍会报 `Failed to generate ICNS`，这一步需要在沙箱外运行构建。 |
+| 检出路径经过 `/tmp` 等符号链接 | 构建脚本按真实路径判断入口，可以在符号链接目录中构建。 |
+| 获取代理核心时报 `The Mihomo license could not be obtained` | `raw.githubusercontent.com` 不可达时，脚本会改从 GitHub 源码归档提取 Mihomo 的 LICENSE，许可证正文和源码归档均按固定 SHA-256 校验；两者都失败时停止构建，避免应用包缺少许可证。按报错把对应版本的 LICENSE 纯文本或源码归档放到提示的 `_output/proxy-core/` 路径，或把 `CAGE_GITHUB_MIRROR` 设为可访问的 HTTPS GitHub 下载镜像前缀，再重新运行。 |
+| `make cage` 下载 Go 工具链或模块失败，例如访问 `sum.golang.org` 超时 | 设置可访问的模块代理和校验数据库后重试，例如 `GOPROXY=https://goproxy.cn,direct GOSUMDB=sum.golang.google.cn bash scripts/build-app.sh`。`tools/tailnet` 需要的 Go 1.27.3 工具链也经由 `GOPROXY` 下载；也可以先安装满足要求的 Go 并使用 `GOTOOLCHAIN=local`。 |
 
 ## 维护者：配置自动邀请
 

@@ -1,7 +1,9 @@
 package workbench
 
 import (
+	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/sylvinus/agent-vm/internal/diagnostics"
@@ -10,6 +12,7 @@ import (
 
 const (
 	aptFailureMarker  = "APT_FAILED "
+	aptPartialMarker  = "APT_PARTIAL bytes="
 	aptTailLines      = 6
 	aptTailLineBytes  = 200
 	aptCommandBytes   = 300
@@ -23,6 +26,8 @@ type aptEvidence struct {
 	exit, command string
 	packages      []string
 	tail          []string
+	// partialBytes is the size of unfinished downloads APT keeps for resuming.
+	partialBytes int64
 }
 
 // parseAPTFailure reads the last APT failure marker written by
@@ -60,7 +65,21 @@ func parseAPTFailure(log string) *aptEvidence {
 			ev.packages = append(ev.packages, arg)
 		}
 	}
-	for i := at - 1; i >= 0 && len(ev.tail) < aptTailLines; i-- {
+	start := at - 1
+	for start >= 0 && strings.TrimSpace(lines[start]) == "" {
+		start--
+	}
+	// The installer reports kept downloads on the line just before the marker;
+	// an earlier report belongs to another APT call.
+	if start >= 0 {
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(lines[start]), aptPartialMarker); ok {
+			if n, err := strconv.ParseInt(rest, 10, 64); err == nil && n > 0 {
+				ev.partialBytes = n
+			}
+			start--
+		}
+	}
+	for i := start; i >= 0 && len(ev.tail) < aptTailLines; i-- {
 		if line := strings.TrimSpace(lines[i]); line != "" {
 			ev.tail = append([]string{clip(line, aptTailLineBytes)}, ev.tail...)
 		}
@@ -73,6 +92,13 @@ func clip(s string, n int) string {
 		return s
 	}
 	return strings.ToValidUTF8(s[:n], "") + "…"
+}
+
+func aptPartialSize(n int64) string {
+	if n < 1<<20 {
+		return strconv.FormatInt(max((n+1023)/1024, 1), 10) + " KiB"
+	}
+	return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
 }
 
 // packageInstallFailure explains a failed base package stage. Only fields the
@@ -92,7 +118,9 @@ func packageInstallFailure(action string, cause error, log string) error {
 		patterns     []string
 		reason, next string
 	}{
+		{[]string{"dpkg was interrupted"}, "上次中断的软件安装未能自动补完，环境的软件包管理器仍停在未完成状态", "请重试一次；仍失败时在设置中导出诊断包。不要手动删除 dpkg 的状态或锁文件。"},
 		{[]string{"temporary failure resolving", "could not resolve", "name or service not known", "something wicked happened resolving", "no address associated with hostname"}, "APT 无法解析下载服务器域名", "请在网络与代理设置中检查所选节点和 DNS，再继续安装。"},
+		{[]string{"unexpected eof while reading", "error reading from server"}, "APT 下载连接提前中断", "请检查所选代理并重试安装，已下载的部分可以继续使用。"},
 		{[]string{"connection timed out", "timed out", "could not connect to", "unable to connect to", "connection failed", "connection refused"}, "APT 连接下载服务器失败或超时", "请检查所选代理是否可用，再继续安装。"},
 		{[]string{"proxy authentication required", "407 proxy"}, "代理服务器拒绝了当前登录凭据", "请在网络与代理设置中更新代理账号或订阅，再应用节点。"},
 		{[]string{aptNotFoundNeedle, "has no installation candidate"}, "软件源中找不到所需的软件包", "请确认软件源可访问且 apt update 已成功，再继续安装。"},
@@ -120,6 +148,10 @@ func packageInstallFailure(action string, cause error, log string) error {
 	}
 	if tail != "" {
 		detail += "；错误输出末尾：" + strings.ReplaceAll(tail, "\n", " | ")
+	}
+	if ev.partialBytes > 0 {
+		next += "APT 缓存中有 " + aptPartialSize(ev.partialBytes) + " 未完成的软件包。重新点击安装时，若软件源支持续传，APT 会尝试复用匹配的缓存。"
+		detail += "；已保留未完成的下载 " + strconv.FormatInt(ev.partialBytes, 10) + " 字节"
 	}
 	diagnostics.Log("error", "package-install", "reason="+reason+" "+detail)
 	return usererror.New(action, reason, diagnostics.Redact(detail)+"。"+next, cause)

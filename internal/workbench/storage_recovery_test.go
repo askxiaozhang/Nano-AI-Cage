@@ -93,7 +93,7 @@ func TestStorageRecoveryKeepsHostAccessAndBlocksEnvironmentMutations(t *testing.
 			t.Fatalf("mutation %s reached its receiver: %d %s", endpoint, response.Code, response.Body.String())
 		}
 	}
-	for _, endpoint := range []string{"/api/browser/state", "/api/vnc", "/api/terminals", "/api/audio"} {
+	for _, endpoint := range []string{"/api/browser/state", "/api/vnc", "/api/terminals", "/api/audio", "/api/audio/input"} {
 		if response := desktopRequestForTest(s, http.MethodGet, endpoint, nil); response.Code != http.StatusConflict {
 			t.Fatalf("guest session %s was admitted: %d", endpoint, response.Code)
 		}
@@ -241,10 +241,17 @@ func TestStorageRecoveryProductionStartupKeepsLoginAndDiagnostics(t *testing.T) 
 		t.Fatal(err)
 	}
 	account.lock()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestStorageRecoveryProductionStartupKeepsLoginAndDiagnostics$", "-test.timeout=40s")
-	command.Env = append(os.Environ(), "CAGE_TEST_STORAGE_RECOVERY_CONFIG="+s.configPath)
+	// The go test deadline is the only hang guard: startup and the password key
+	// derivation can take any time on a loaded host. The helper's own timeout
+	// only stops an orphan if this process is killed.
+	ctx := t.Context()
+	command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestStorageRecoveryProductionStartupKeepsLoginAndDiagnostics$", "-test.timeout=10m")
+	// The production startup must not see the developer's real home or caches.
+	home := t.TempDir()
+	command.Env = append(os.Environ(), "CAGE_TEST_STORAGE_RECOVERY_CONFIG="+s.configPath, "HOME="+home, "USERPROFILE="+home,
+		"XDG_CONFIG_HOME="+filepath.Join(home, ".config"), "XDG_CACHE_HOME="+filepath.Join(home, ".cache"),
+		"XDG_DATA_HOME="+filepath.Join(home, ".local", "share"), "XDG_STATE_HOME="+filepath.Join(home, ".local", "state"),
+		"LOCALAPPDATA="+filepath.Join(home, "AppData", "Local"), "APPDATA="+filepath.Join(home, "AppData", "Roaming"))
 	var output bytes.Buffer
 	command.Stdout, command.Stderr = &output, &output
 	if err := command.Start(); err != nil {
@@ -263,8 +270,8 @@ func TestStorageRecoveryProductionStartupKeepsLoginAndDiagnostics(t *testing.T) 
 		}
 	})
 	var control controlFile
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
+	// Wait for the published control record, or for the workbench to exit.
+	for {
 		data, err := os.ReadFile(filepath.Join(s.profile, "control.json"))
 		if err == nil && json.Unmarshal(data, &control) == nil && control.PID == command.Process.Pid {
 			break
@@ -273,9 +280,8 @@ func TestStorageRecoveryProductionStartupKeepsLoginAndDiagnostics(t *testing.T) 
 		case err := <-done:
 			finished = true
 			t.Fatalf("storage recovery terminated the production workbench: %v", err)
-		default:
+		case <-time.After(10 * time.Millisecond):
 		}
-		time.Sleep(10 * time.Millisecond)
 	}
 	if control.PID != command.Process.Pid {
 		t.Fatal("pending recovery did not publish a reachable workbench")
@@ -284,9 +290,9 @@ func TestStorageRecoveryProductionStartupKeepsLoginAndDiagnostics(t *testing.T) 
 	base, _ := url.Parse(origin)
 	jar, _ := cookiejar.New(nil)
 	jar.SetCookies(base, []*http.Cookie{{Name: cookieName + "_" + base.Port() + "-desktop", Value: trustedViewProof(control.Token), Path: "/"}})
-	// Unlocking derives the password key, which takes several seconds on
-	// slower CI machines.
-	client := &http.Client{Jar: jar, Timeout: 10 * time.Second}
+	// Requests carry the test context; unlocking derives the password key and
+	// has no fixed time limit here.
+	client := &http.Client{Jar: jar}
 	call := func(method, path, body string, expected int) []byte {
 		t.Helper()
 		request, err := http.NewRequestWithContext(ctx, method, origin+path, strings.NewReader(body))
@@ -340,5 +346,78 @@ func TestStorageRecoveryProductionStartupKeepsLoginAndDiagnostics(t *testing.T) 
 	}
 	if _, err := os.Stat(s.environmentDir()); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("pending startup wrote environment data", err)
+	}
+}
+
+func TestStorageRecoveryAllowsLocalRebuildAndBlocksQuickReset(t *testing.T) {
+	s := storageRecoveryServer(t)
+	journal := storageRecoveryJournal(t, s)
+	s.failStorageRecovery(errors.New("synthetic corrupted storage path"))
+
+	// Host-only read & preview endpoints stay available during storage recovery.
+	if w := desktopRequestForTest(s, http.MethodGet, "/api/environment/device-reset", nil); w.Code != http.StatusOK {
+		t.Fatalf("GET device-reset during recovery returned %d: %s", w.Code, w.Body.String())
+	}
+	if w := desktopRequestForTest(s, http.MethodPost, "/api/environment/device-reset/preview", []byte(`{}`)); w.Code != http.StatusOK {
+		t.Fatalf("POST device-reset/preview during recovery returned %d: %s", w.Code, w.Body.String())
+	}
+	// Quick reset, archive restore, and archive delete remain blocked during storage recovery.
+	if w := desktopRequestForTest(s, http.MethodPost, "/api/environment/device-reset/execute", []byte(`{"mode":"quick","items":[]}`)); w.Code != http.StatusConflict {
+		t.Fatalf("quick reset during recovery should be 409, got %d: %s", w.Code, w.Body.String())
+	}
+	for _, blocked := range []string{"/api/environment/device-reset/restore", "/api/environment/device-reset/delete-archive"} {
+		if w := desktopRequestForTest(s, http.MethodPost, blocked, []byte(`{"kind":"archive","id":"deadbeef1234"}`)); w.Code != http.StatusConflict {
+			t.Fatalf("%s during recovery should be 409, got %d: %s", blocked, w.Code, w.Body.String())
+		}
+	}
+	// Untrusted request cannot trigger rebuild during recovery.
+	if w := request(s, http.MethodPost, "/api/environment/device-reset/execute", s.origin, `{"mode":"rebuild","items":[]}`, true); w.Code != http.StatusForbidden {
+		t.Fatalf("untrusted rebuild during recovery should be 403, got %d", w.Code)
+	}
+
+	// Confirmed local rebuild detaches the broken journal (preserving it in archive),
+	// clears storage recovery, and invokes startEnv with storage healthy.
+	stopCalled := false
+	startCalled := false
+	s.deviceReset = deviceResetHooks{
+		stopEnv: func() error {
+			stopCalled = true
+			return nil
+		},
+		startEnv: func(bool) error {
+			if s.storageRecoveryStatus().Required {
+				return errors.New("storage recovery was still active when startEnv ran")
+			}
+			startCalled = true
+			return nil
+		},
+	}
+
+	w := desktopRequestForTest(s, http.MethodPost, "/api/environment/device-reset/execute", []byte(`{"mode":"rebuild","items":[]}`))
+	if w.Code != http.StatusOK {
+		t.Fatalf("rebuild during storage recovery returned %d: %s", w.Code, w.Body.String())
+	}
+	job := waitDeviceResetJob(t, s)
+	if job.Error != "" {
+		t.Fatalf("rebuild job failed: %+v", job)
+	}
+	if stopCalled {
+		t.Fatal("stopEnv should not run when VM is not running during storage recovery")
+	}
+	if !startCalled {
+		t.Fatal("startEnv was not invoked during recovery rebuild")
+	}
+	if s.storageRecoveryStatus().Required {
+		t.Fatalf("storage recovery remained required after rebuild: %+v", s.storageRecoveryStatus())
+	}
+	if _, err := os.Stat(journal); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("pending journal remained at profile root: %v", err)
+	}
+	archives, err := filepath.Glob(filepath.Join(s.profile, "storage-recovery-archive-*", "environment-storage-pending.json"))
+	if err != nil || len(archives) != 1 {
+		t.Fatalf("expected archived pending journal, got %v (%v)", archives, err)
+	}
+	if w := desktopRequestForTest(s, http.MethodGet, "/api/environment/storage", nil); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"directory"`) {
+		t.Fatalf("storage endpoint did not recover after rebuild: %d %s", w.Code, w.Body.String())
 	}
 }

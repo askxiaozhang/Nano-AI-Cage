@@ -133,6 +133,11 @@ type Settings struct {
 	Locale          string          `json:"locale"`
 	BrowserLanguage string          `json:"browser_language"`
 	ExitPolicy      cage.ExitPolicy `json:"exit_policy"`
+	// LANAccess lets the environment reach this computer's local networks.
+	LANAccess bool `json:"lan_access"`
+	// LANSubnets names extra local networks, a routed LAN this computer is not
+	// directly attached to (comma-separated CIDRs).
+	LANSubnets string `json:"lan_subnets"`
 }
 type Location struct {
 	IP                       string    `json:"ip"`
@@ -179,19 +184,20 @@ func writePrivate(path string, v any) error {
 	}
 	return os.Rename(f.Name(), path)
 }
+
 func settingsView(c cage.Config, p Preferences) Settings {
 	if p.MobileRelay == mobilelink.OfficialRelay {
 		p.MobileRelay = ""
 	}
 	p.BrowserHomeURL = browserHomeURL(p)
 	p.ClaudeTerminalCommand = claudeTerminalCommand(p)
-	return Settings{Preferences: p, DNSURL: c.DNSURL, Timezone: c.Timezone, Locale: c.Locale, BrowserLanguage: c.BrowserLanguage, ExitPolicy: c.ExitPolicy.Normalized()}
+	return Settings{Preferences: p, DNSURL: c.DNSURL, Timezone: c.Timezone, Locale: c.Locale, BrowserLanguage: c.BrowserLanguage, ExitPolicy: c.ExitPolicy.Normalized(), LANAccess: c.LANAccess, LANSubnets: c.LANSubnets}
 }
 func proposedSettings(input Settings, old cage.Config, profile string) (cage.Config, Preferences, error) {
 	if input.ExitPolicy == (cage.ExitPolicy{}) {
 		input.ExitPolicy = old.ExitPolicy
 	}
-	c := cage.Config{ProxyURL: old.ProxyURL, ProxyRevision: old.ProxyRevision, DNSURL: input.DNSURL, Timezone: input.Timezone, Locale: input.Locale, BrowserLanguage: input.BrowserLanguage, ExitPolicy: input.ExitPolicy.Normalized()}
+	c := cage.Config{ProxyURL: old.ProxyURL, ProxyRevision: old.ProxyRevision, DNSURL: input.DNSURL, Timezone: input.Timezone, Locale: input.Locale, BrowserLanguage: input.BrowserLanguage, ExitPolicy: input.ExitPolicy.Normalized(), LANAccess: input.LANAccess, LANSubnets: input.LANSubnets}
 	if err := c.Validate(); err != nil {
 		return c, input.Preferences, err
 	}

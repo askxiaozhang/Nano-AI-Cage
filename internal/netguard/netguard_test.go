@@ -238,3 +238,54 @@ func TestHostAddressDiscoveryFollowsChangesAndFailsClosed(t *testing.T) {
 		t.Fatal("did not recover after address removal and successful discovery")
 	}
 }
+
+// The LAN opt-in reaches the subnets this machine sits on, never the machine
+// itself and never the whole private space.
+func TestLANAccess(t *testing.T) {
+	discover := func() ([]net.Addr, error) {
+		return []net.Addr{&net.IPNet{IP: net.ParseIP("192.168.30.128"), Mask: net.CIDRMask(23, 32)}}, nil
+	}
+	denied := &Policy{}
+	lan := &Policy{LAN: true}
+	for dst, want := range map[string]bool{
+		"192.168.30.50:80":    true,  // the LAN this machine is on
+		"192.168.31.200:5432": true,  // inside the same /23
+		"192.168.1.5:80":      false, // private, but not this machine's network
+		"10.1.2.3:22":         false,
+		"192.168.5.2:3080":    false, // netstack gateway, forwards host services
+		"192.168.30.128:80":   false, // the machine's own address
+		"127.0.0.1:80":        false,
+		"169.254.169.254:80":  false,
+		"8.8.8.8:443":         true, // the internet still works
+	} {
+		if got := lan.allows("tcp", ap(dst), discover); got != want {
+			t.Errorf("LAN %s: %v", dst, got)
+		}
+	}
+	if denied.allows("tcp", ap("192.168.30.50:80"), discover) {
+		t.Error("LAN reachable without the opt-in")
+	}
+	// Without usable interface information the opt-in cannot apply.
+	failing := func() ([]net.Addr, error) { return nil, os.ErrPermission }
+	if lan.allows("tcp", ap("192.168.30.50:80"), failing) {
+		t.Error("allowed LAN without interface information")
+	}
+	// Networks the user named are reached even when no interface reveals them.
+	named := &Policy{LAN: true, LANNets: []netip.Prefix{netip.MustParsePrefix("192.168.70.0/24"), netip.MustParsePrefix("192.168.71.0/24")}}
+	if !named.allows("tcp", ap("192.168.70.1:80"), discover) || !named.allows("tcp", ap("192.168.71.69:18766"), discover) {
+		t.Error("named LAN network refused")
+	}
+	if named.allows("tcp", ap("192.168.72.1:80"), discover) {
+		t.Error("unnamed private address allowed")
+	}
+	if named.allows("tcp", ap("192.168.30.128:80"), discover) {
+		t.Error("the machine's own address allowed through a named network")
+	}
+	// A point-to-point /32 interface address is not a network to reach.
+	hostRoute := func() ([]net.Addr, error) {
+		return []net.Addr{&net.IPNet{IP: net.ParseIP("192.168.30.128"), Mask: net.CIDRMask(32, 32)}}, nil
+	}
+	if lan.allows("tcp", ap("192.168.30.50:80"), hostRoute) {
+		t.Error("treated a host route as a LAN")
+	}
+}

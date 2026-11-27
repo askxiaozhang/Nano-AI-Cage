@@ -2480,5 +2480,9 @@
   "点击上方「添加 Google 账号」创建独立隔离配置，即可在左侧 Google Antigravity 下多开多个账号窗口。": "Click 'Add Google Account' above to create an isolated profile and run multiple Google Antigravity windows side by side.",
   "此浏览器运行在该 Google 账号的独立隔离环境与专属代理出口中，适用于 Gemini Web、AI Studio 与 NotebookLM。": "This browser runs in this Google account's isolated profile and dedicated proxy exit, ideal for Gemini Web, AI Studio, and NotebookLM.",
   "此 Antigravity 实例运行在该 Google 账号的独立隔离目录与专属代理出口中，可与其他账号并行多开。": "This Antigravity instance runs in this Google account's isolated profile and dedicated proxy exit alongside other accounts.",
-  "启动会话": "Launch session"
+  "启动会话": "Launch session",
+  "允许访问局域网": "로컬 네트워크 접근 허용",
+  "开启后，Cage 内的程序可以直连这台电脑所在网段的设备，例如 NAS、打印机和内网服务。这台电脑自身的地址仍然被拦截，公网流量继续走代理；修改后需要重启环境生效。": "켜면 Cage 안의 프로그램이 이 컴퓨터의 네트워크에 있는 장치(NAS, 프린터, 내부 서비스)에 직접 연결할 수 있습니다. 이 컴퓨터 자체의 주소는 계속 차단되고 인터넷 트래픽은 프록시를 거칩니다. 변경 사항은 환경을 다시 시작한 뒤 적용됩니다.",
+  "额外的局域网网段": "추가 로컬 네트워크",
+  "用逗号分隔，填本机网卡之外的网段，例如同一路由器下的实验网。本机所在网段已自动包含。": "쉼표로 구분해 이 컴퓨터의 인터페이스 밖 네트워크를 적습니다. 예: 같은 공유기 뒤의 실험망. 이 컴퓨터의 네트워크는 자동으로 포함됩니다."
 }

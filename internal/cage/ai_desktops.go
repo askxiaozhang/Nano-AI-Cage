@@ -386,6 +386,7 @@ if [ "$ARCH" = "amd64" ]; then
   gpg --batch --dearmor < "$temporary/anysphere.asc" | sudo tee /etc/apt/keyrings/cursor.gpg >/dev/null
   sudo chmod 0644 /etc/apt/keyrings/cursor.gpg
   printf '%s\n' 'deb [arch=amd64 signed-by=/etc/apt/keyrings/cursor.gpg] https://downloads.cursor.com/aptrepo stable main' | sudo tee /etc/apt/sources.list.d/cursor.list >/dev/null
+  declare -F cage_refresh_apt_sources >/dev/null && cage_refresh_apt_sources || :
   sudo env DEBIAN_FRONTEND=noninteractive APT_CONFIG="${CAGE_APT_CONFIG:-/dev/null}" apt-get -o DPkg::Lock::Timeout=60 update </dev/null
   printf '正在下载并安装 Cursor…\n'
   sudo env DEBIAN_FRONTEND=noninteractive APT_CONFIG="${CAGE_APT_CONFIG:-/dev/null}" apt-get -o DPkg::Lock::Timeout=60 install -y cursor </dev/null
@@ -511,6 +512,7 @@ cage_curl_download "$temporary/windsurf.gpg" --proto '=https' --proto-redir '=ht
 gpg --batch --dearmor < "$temporary/windsurf.gpg" | sudo tee /etc/apt/keyrings/windsurf-stable.gpg >/dev/null
 sudo chmod 0644 /etc/apt/keyrings/windsurf-stable.gpg
 printf '%s\n' 'deb [arch=amd64 signed-by=/etc/apt/keyrings/windsurf-stable.gpg] https://windsurf-stable.codeiumdata.com/wVxQEIWkwPUEAGf3/apt stable main' | sudo tee /etc/apt/sources.list.d/windsurf.list >/dev/null
+declare -F cage_refresh_apt_sources >/dev/null && cage_refresh_apt_sources || :
 sudo env DEBIAN_FRONTEND=noninteractive APT_CONFIG="${CAGE_APT_CONFIG:-/dev/null}" apt-get -o DPkg::Lock::Timeout=60 update </dev/null
 printf '正在下载并安装 Devin Desktop…\n'
 sudo env DEBIAN_FRONTEND=noninteractive APT_CONFIG="${CAGE_APT_CONFIG:-/dev/null}" apt-get -o DPkg::Lock::Timeout=60 install -y devin-desktop </dev/null

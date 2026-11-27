@@ -102,12 +102,7 @@ func (p *maintenanceProxy) allowsDestination(address string, connect bool) bool 
 		"api.snapcraft.io", "storage.snapcraftcontent.com",
 		"canonical-lgw01.cdn.snapcraftcontent.com", "canonical-lcy01.cdn.snapcraftcontent.com",
 		"canonical-lcy02.cdn.snapcraftcontent.com", "canonical-bos01.cdn.snapcraftcontent.com",
-		"cloudfront.cdn.snapcraftcontent.com",
-		"codeload.github.com", "api.github.com", "raw.githubusercontent.com",
-		"antigravity.google", "storage.googleapis.com", "edgedl.me.gvt1.com", "redirector.gvt1.com",
-		"persistent.oaistatic.com",
-		"downloads.cursor.com", "api2.cursor.sh", "downloader.cursor.sh",
-		"windsurf-stable.codeiumdata.com":
+		"cloudfront.cdn.snapcraftcontent.com", "codeload.github.com":
 		return connect
 	}
 	return maintenanceOrigins[host] || (connect && slices.Contains(p.installHTTPSHosts, host))
@@ -241,7 +236,7 @@ func maintenanceScriptWithAPTScope(script, token string, container bool, allowed
 printf '%s\n' 'Dir::Cache::archives "/var/cache/apt/install-archives";' >> "$CAGE_APT_CONFIG"
 ` + script
 	}
-	if !validClaudeID(allowedAPTAppID) {
+	if !validClaudeID(allowedAPTAppID) && allowedAPTAppID != "cursor" && allowedAPTAppID != "devin-desktop" {
 		allowedAPTAppID = ""
 	}
 	return fmt.Sprintf(`set -euo pipefail
@@ -260,6 +255,12 @@ cage_refresh_apt_sources() {
   [ -d "$src_dir" ] || return 0
   local exclude=""
   local entry base id vendor_excluded
+  if [ "$allowed" != cursor ] && [ -f "$src_dir/cursor.list" ]; then
+    exclude="cursor.list"$'\n'
+  fi
+  if [ "$allowed" != devin-desktop ] && [ -f "$src_dir/windsurf.list" ]; then
+    exclude="$exclude""windsurf.list"$'\n'
+  fi
   for entry in "$src_dir"/desktop-app-*.list; do
     [ -e "$entry" ] || [ -L "$entry" ] || continue
     base=$(basename "$entry")
@@ -383,8 +384,8 @@ func RunMaintenanceScript(ctx context.Context, configPath, script string, stdout
 	return runInstallMaintenanceScript(ctx, configPath, script, maintenanceOptions{}, stdout, stderr)
 }
 
-// RunMaintenanceScriptWithHosts adds reviewed HTTPS download hosts for this install only.
-func RunMaintenanceScriptWithHosts(ctx context.Context, configPath, script string, extraHosts []string, stdout, stderr io.Writer) error {
+// RunMaintenanceScriptWithHosts adds explicit HTTPS download hosts for this install only.
+func RunMaintenanceScriptWithHosts(ctx context.Context, configPath, script string, extraHosts []string, aptAppID string, stdout, stderr io.Writer) error {
 	hosts := make([]string, 0, len(extraHosts))
 	for _, host := range extraHosts {
 		host = strings.ToLower(strings.TrimSpace(host))
@@ -392,7 +393,7 @@ func RunMaintenanceScriptWithHosts(ctx context.Context, configPath, script strin
 			hosts = append(hosts, host)
 		}
 	}
-	return runInstallMaintenanceScript(ctx, configPath, script, maintenanceOptions{installHTTPSHosts: hosts}, stdout, stderr)
+	return runInstallMaintenanceScript(ctx, configPath, script, maintenanceOptions{installHTTPSHosts: hosts, allowedAPTAppID: aptAppID}, stdout, stderr)
 }
 
 func runInstallMaintenanceScript(ctx context.Context, configPath, script string, opts maintenanceOptions, stdout, stderr io.Writer) error {

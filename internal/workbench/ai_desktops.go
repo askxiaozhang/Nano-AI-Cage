@@ -486,12 +486,25 @@ func (s *Server) aiDesktopAction(w http.ResponseWriter, r *http.Request) {
 			s.setMessage(fmt.Sprintf("正在下载并安装 %s，可在操作详情查看进度…", app.Name))
 			script := cage.AIDesktopInstallScript(app)
 			var extraHosts []string
+			var aptAppID string
+			switch app.InstallType {
+			case "github-deb":
+				extraHosts = append(extraHosts, "api.github.com", "raw.githubusercontent.com")
+			case "antigravity-tarball":
+				extraHosts = append(extraHosts, "antigravity.google", "storage.googleapis.com", "edgedl.me.gvt1.com", "redirector.gvt1.com")
+			case "apt-cursor":
+				extraHosts = append(extraHosts, "downloads.cursor.com", "api2.cursor.sh", "downloader.cursor.sh")
+				aptAppID = "cursor"
+			case "apt-devin":
+				extraHosts = append(extraHosts, "windsurf-stable.codeiumdata.com")
+				aptAppID = "devin-desktop"
+			}
 			for _, raw := range []string{app.DownloadURL, app.ARM64URL} {
 				if parsed, err := url.Parse(raw); err == nil && parsed.Scheme == "https" && parsed.Hostname() != "" {
 					extraHosts = append(extraHosts, parsed.Hostname())
 				}
 			}
-			if err := RunMaintenanceScriptWithHosts(s.operationContext(), s.configPath, script, extraHosts, s.jobs.execution(), s.jobs.execution()); err != nil {
+			if err := RunMaintenanceScriptWithHosts(s.operationContext(), s.configPath, script, extraHosts, aptAppID, s.jobs.execution(), s.jobs.execution()); err != nil {
 				return err
 			}
 			// Auto-pin installed apps to the left sidebar so the user can launch them immediately.

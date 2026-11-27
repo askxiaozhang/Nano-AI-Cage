@@ -208,9 +208,11 @@ func TestMaintenanceScriptScopesThirdPartyDesktopAppAPTSources(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, body := range map[string]string{
-		"debian.sources":               "Types: deb\n",
+		"cursor.list":                      "deb https://downloads.cursor.com/aptrepo stable main\n",
+		"windsurf.list":                    "deb https://windsurf-stable.codeiumdata.com/apt stable main\n",
+		"debian.sources":                   "Types: deb\n",
 		"desktop-app-" + codexID + ".list": "deb https://persistent.oaistatic.com/codex-app-prod/linux/deb stable main\n",
-		"openai-vendor.list":           "deb https://persistent.oaistatic.com/codex-app-prod/linux/deb stable main\n",
+		"openai-vendor.list":               "deb https://persistent.oaistatic.com/codex-app-prod/linux/deb stable main\n",
 		"desktop-app-" + otherID + ".list": "deb https://other.example.test/deb stable main\n",
 	} {
 		if err := os.WriteFile(sourcesDir+"/"+name, []byte(body), 0o644); err != nil {
@@ -263,5 +265,15 @@ ls -1 "$dir" | sort | tr '\n' ','
 	want := "claude-desktop.list,debian.sources,desktop-app-" + codexID + ".list,openai-vendor.list,"
 	if got := strings.TrimSpace(string(out)); got != want {
 		t.Fatalf("codex filtered sources = %q, want %q", got, want)
+	}
+
+	cmd = exec.Command(shell, "-se")
+	cmd.Stdin = strings.NewReader(maintenanceScriptWithAPTScope(codexScript, "fixture-token", false, "cursor"))
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("cursor maintenance failed: %v\n%s", err, out)
+	}
+	if got, want := strings.TrimSpace(string(out)), "claude-desktop.list,cursor.list,debian.sources,"; got != want {
+		t.Fatalf("cursor filtered sources = %q, want %q", got, want)
 	}
 }

@@ -101,7 +101,7 @@ export const RemoteView = forwardRef(function RemoteView(
               : undefined,
           },
         );
-        if (isolatedDisplay) client.cageUseTigerVNCClipboard();
+        if (desktop || isolatedDisplay) client.cageUseTigerVNCClipboard();
         rfb.current = client;
         // A Linux guest takes key events as sent; see guest-keys.mjs.
         keys = guestKeys(client.sendKey.bind(client));
@@ -192,10 +192,9 @@ export const RemoteView = forwardRef(function RemoteView(
             },
             insertText: (text) => {
               if (desktop) {
-                if (isolatedDisplay) return client.cagePasteText(text, () => !disposed && current.current.visible);
-                if (!window.cageSharedClipboardActive) return client.cagePasteText(text);
+                const valid = () => !disposed && current.current.visible;
+                if (isolatedDisplay || !window.cageSharedClipboardActive) return client.cagePasteText(text, valid);
                 return client.cageRunInput(async () => {
-                  const valid = () => !disposed && current.current.visible;
                   const state = await api("/input", { target: "desktop", id: "desktop", mode: "status" });
                   if (!state.available || !valid()) throw new Error("输入位置已失去焦点，请重新点击输入框");
                   const session = crypto.randomUUID().replaceAll("-", "");

@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
 
-test("TigerVNC paste sends UTF-8 after negotiation without waiting for a clipboard request", async (t) => {
+function patchedRfb(t) {
   const directory = mkdtempSync(join(tmpdir(), "cage-vnc-clipboard-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   mkdirSync(join(directory, "core"));
@@ -17,8 +17,12 @@ test("TigerVNC paste sends UTF-8 after negotiation without waiting for a clipboa
   // The guest can apply the patch again when syncing its components.
   execFileSync("python3", [patch, directory]);
   execFileSync("python3", [patch, directory]);
-  const source = readFileSync(rfbFile, "utf8");
-  const start = source.indexOf("    _cageQueueInput(action) {");
+  return readFileSync(rfbFile, "utf8");
+}
+
+test("TigerVNC paste sends UTF-8 after negotiation without waiting for a clipboard request", async (t) => {
+  const source = patchedRfb(t);
+  const start = source.indexOf("    _cageQueueInput(");
   const end = source.indexOf("    clipboardPasteFrom(text) {", start);
   assert.ok(start >= 0 && end > start);
   const sent = [];
@@ -56,4 +60,41 @@ test("TigerVNC paste sends UTF-8 after negotiation without waiting for a clipboa
   await paste;
   await assert.rejects(client.cagePasteText("old tab", () => false), /粘贴位置已切换/);
   assert.equal(sent.length, 3);
+});
+
+test("a failed punctuation commit still releases a held Shift and skips queued Enter", async (t) => {
+  const source = patchedRfb(t);
+  const queueStart = source.indexOf("    _cageQueueInput(");
+  const queueEnd = source.indexOf("    cageRunInput(", queueStart);
+  const keyStart = source.indexOf("    sendKey(keysym, code, down) {");
+  const keyEnd = source.indexOf("    _cageSendKey(keysym, code, down) {", keyStart);
+  assert.ok(queueStart >= 0 && queueEnd > queueStart && keyStart >= 0 && keyEnd > keyStart);
+  const Viewer = runInNewContext(`class Viewer {
+    ${source.slice(queueStart, queueEnd)}
+    ${source.slice(keyStart, keyEnd)}
+  }; Viewer`);
+  const client = new Viewer();
+  const sent = [];
+  client._cageModifiers = new Map();
+  client._cageSendKey = (keysym, code, down) => {
+    sent.push([code, down]);
+    if (code === "ShiftLeft") {
+      if (down) client._cageModifiers.set(code, keysym);
+      else client._cageModifiers.delete(code);
+    }
+  };
+
+  client.sendKey(0xffe1, "ShiftLeft", true);
+  const failure = new Error("punctuation transfer failed");
+  const commit = client._cageQueueInput(() => Promise.reject(failure));
+  client.sendKey(0xffe1, "ShiftLeft", false);
+  client.sendKey(0xff0d, "Enter", true);
+  client.sendKey(0xff0d, "Enter", false);
+
+  await assert.rejects(client._cageInputChain, failure);
+  await assert.rejects(commit, failure);
+  assert.deepEqual(sent, [["ShiftLeft", true], ["ShiftLeft", false]]);
+  assert.equal(client._cageModifiers.size, 0);
+  client.sendKey(0x61, "KeyA", true);
+  assert.deepEqual(sent.at(-1), ["KeyA", true]);
 });

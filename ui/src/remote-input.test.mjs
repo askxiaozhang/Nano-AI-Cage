@@ -129,6 +129,7 @@ function fixture(native = false, browserComposition = false, options = {}) {
       setCopyContext: async (context, valid) => { if (valid()) copyContexts.push(context); },
       insertText: async (text) => {
         texts.push(text);
+        return options.insertText?.(text);
       },
       insertComposition: browserComposition ? async (id, value) => {
         if (id !== currentTabId) throw new Error("Input target changed");
@@ -649,6 +650,24 @@ test("fullwidth punctuation without composition uses text, while host punctuatio
     inputEvent(f, "input", { data: "？", inputType: "insertText" });
     assert.equal(f.texts.at(-1), "？");
     assert.equal(f.key("keydown", "?", "Slash", { ctrlKey: true }).defaultPrevented, false);
+  } finally { f.controller.dispose(); }
+});
+test("a punctuation failure after Chinese composition shows the input error and allows the next commit", async () => {
+  const message = "客机输入响应超时，请重试";
+  const f = fixture(false, false, { insertText: text => {
+    if (text === "？") throw new Error(message);
+  } });
+  try {
+    f.rfb.focus();
+    inputEvent(f, "compositionstart");
+    inputEvent(f, "compositionend", { data: "你好" });
+    f.key("keydown", "？", "Slash", { shiftKey: true });
+    f.key("keyup", "？", "Slash");
+    await Promise.resolve();
+    assert.deepEqual(f.statuses, [message]);
+    inputEvent(f, "compositionstart");
+    inputEvent(f, "compositionend", { data: "继续" });
+    assert.deepEqual(f.texts, ["你好", "？", "继续"]);
   } finally { f.controller.dispose(); }
 });
 test("ASCII punctuation is committed on release when the host IME stays silent", () => {

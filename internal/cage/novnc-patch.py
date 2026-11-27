@@ -55,8 +55,8 @@ replace_once('''    focus(options) {
 
 replace_once('    clipboardPasteFrom(text) {', '''    // Cage: serialize the clipboard notification, data transfer and paste.
     // A server fence confirms it has processed the provided clipboard data.
-    _cageQueueInput(action) {
-        const result = (this._cageInputChain || Promise.resolve()).then(action);
+    _cageQueueInput(action, onRejected) {
+        const result = (this._cageInputChain || Promise.resolve()).then(action, onRejected);
         this._cageInputChain = result;
         const clear = () => {
             if (this._cageInputChain === result) this._cageInputChain = null;
@@ -72,19 +72,21 @@ replace_once('    clipboardPasteFrom(text) {', '''    // Cage: serialize the cli
     }
 
     async _cageRunInput(action) {
-        if (this._rfbConnectionState !== 'connected' || this._viewOnly || !this._supportsFence)
-            throw new Error('Input transport is not ready');
+        if (this._rfbConnectionState !== 'connected')
+            throw new Error('画面连接已断开，请重新输入');
+        if (this._viewOnly || !this._supportsFence)
+            throw new Error('画面输入通道未就绪，请稍后重试');
         // Flush preceding VNC clicks/keys before a browser text insertion.
         await new Promise((resolve, reject) => {
             const id = 'cage-input-' + (this._cageInputSequence = (this._cageInputSequence || 0) + 1);
             const timer = setTimeout(() => {
                 this._cageInputFence = null;
-                reject(new Error('Input fence timed out'));
+                reject(new Error('客机输入响应超时，请重试'));
             }, 4000);
             this._cageInputFence = { id, timer, resolve };
             RFB.messages.clientFence(this._sock, (1 << 31) | 1, id);
         });
-        if (this._rfbConnectionState !== 'connected') throw new Error('Input disconnected');
+        if (this._rfbConnectionState !== 'connected') throw new Error('画面连接已断开，请重新输入');
         return action((...key) => this._cageSendKey(...key));
     }
 
@@ -171,7 +173,14 @@ replace_once('    clipboardPasteFrom(text) {', '''    // Cage: serialize the cli
 replace_once('''    sendKey(keysym, code, down) {
         if (this._rfbConnectionState''', '''    sendKey(keysym, code, down) {
         if (this._cageInputChain) {
-            this._cageQueueInput(() => this._cageSendKey(keysym, code, down));
+            const send = () => this._cageSendKey(keysym, code, down);
+            this._cageQueueInput(send, error => {
+                // A modifier pressed before the failed transfer still needs
+                // its matching release. Leave queued key presses canceled.
+                if (down === false && this._cageModifiers?.has(code))
+                    this._cageSendKey(this._cageModifiers.get(code), code, false);
+                throw error;
+            });
             return;
         }
         this._cageSendKey(keysym, code, down);

@@ -222,9 +222,7 @@ export function installRemoteInput(
     if (disposed || !isActive() || !text) return;
     // X0tigervnc cannot map arbitrary Unicode to its finite X11 keycode pool.
     // The browser inserts committed text directly, without clipboard mutation.
-    insertText(text).catch(() => {
-      if (!disposed) onStatus("文字输入未完成，请重新连接画面后重试");
-    });
+    insertText(text).catch(error => say(error?.message || "文字输入未完成，请重试"));
   };
   // ASCII punctuation is left to the host input method so it can choose e.g.
   // fullwidth "？". Some methods (Sogou) never answer with an input event, so
